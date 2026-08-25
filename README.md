@@ -57,6 +57,12 @@ of pausing silently.
   command runs grant check → Git preflight → scoped patch on `demo-target/` →
   real unittest subprocess → receipted commit on a dedicated branch. Every step
   emits an `ExternalOperationReceipt`.
+- **Gemma triage** (`supportmaster/triage.py`): an additional Google model —
+  Gemma (`gemma-3-27b-it` via the google-genai SDK) — performs cheap, advisory
+  ticket classification (severity, category, duplicate suspicion) before the
+  reasoning stages. Fail-open to a deterministic keyword heuristic when Gemma is
+  unavailable; triage output never feeds any gate or authorization decision.
+  Configure with `SUPPORTMASTER_TRIAGE_MODEL`.
 
 ## Hackathon Track
 
