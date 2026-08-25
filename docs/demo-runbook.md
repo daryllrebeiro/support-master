@@ -19,6 +19,20 @@ Run `.\scripts\demo.ps1 run`. Explain the output in this order:
 3. The resolution gate refuses to claim an unverified fix.
 4. Every stage is represented by an auditable check.
 
+### Verified autonomous fix (one command)
+
+Run `.\scripts\golden-path.ps1` to show the real execution layer against
+`demo-target/`. Narrate in this order:
+
+1. The IMPLEMENTATION authorization grant is verified before anything runs.
+2. Git preflight confirms a clean baseline; the scoped patch touches only
+   `invoice_export.py`.
+3. The regression tests run for real and pass after the streaming fix.
+4. The change is committed on branch `supportmaster/sup-golden`, and every
+   operation prints a JSON receipt (CODE_CHANGE, TEST_EXECUTION, DEMO_COMMIT).
+
+This command is offline-safe: no API key, no external mutation, no push.
+
 ## Workspace
 
 Run `.\scripts\demo.ps1 serve` and open

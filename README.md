@@ -4,6 +4,60 @@ SupportMaster is an autonomous customer-support bug investigation and resolution
 
 It takes a support bug, gathers evidence, searches historical issues and code repositories, determines the likely root cause, proposes or implements a fix, runs tests, generates an RCA, and publishes only when the deterministic safety gates permit it. Explicit duplicates and malformed or unknown gate data stop the run. An incomplete duplicate search may continue read-only investigation, but it cannot authorize autonomous implementation or publication.
 
+## Architecture
+
+SupportMaster is a conditionally-routed ADK `Workflow` of 21 specialized agents,
+governed by deterministic graph gates rather than LLM self-verification:
+
+```mermaid
+graph TD
+    Intake[Ticket Intake<br/>Manual / API / Jira / Zendesk Webhooks] --> Duplicate[Duplicate Work Agent<br/>Google Search grounding]
+    Duplicate -->|new work| Scan[Evidence Agent<br/>Google Search grounding]
+    Duplicate -->|duplicate found| Stop1[Autonomous Safety Stop]
+    Scan --> FanOut{Parallel Investigation<br/>concurrency = 2}
+    FanOut --> Inv[Investigation Agent<br/>cross-run memory tool]
+    FanOut --> Rep[Repository Agent]
+    Inv --> Join[Deterministic Join Gate]
+    Rep --> Join
+    Join --> RootCause[Root Cause Agent<br/>cross-run memory tool]
+    RootCause --> Plan[Remediation Plan Agent]
+    Plan --> ImplGate{Implementation<br/>Authorization Gate}
+    ImplGate -- GRANTED --> Execute[Code Change Agent<br/>self-healing loop x3]
+    ImplGate -- DENIED --> Halt[Autonomous Safety Stop]
+    Execute --> Validate[Validation & Test Agents]
+    Validate -->|checks fail| Diagnose[Failure Diagnosis Node<br/>escalating strategy directive]
+    Diagnose --> Execute
+    Validate -->|checks pass| PubGate{Publication Gate}
+    PubGate -- GRANTED --> Publish[GitHub Publish Agent<br/>verified executor]
+    PubGate -- DENIED --> Review[HITL Review Queue<br/>co-pilot chat]
+    Review -->|APPROVE| Publish
+    Review -->|REJECT| Halt
+```
+
+Every mutation is receipted, every gate decision is persisted to the state
+contract, and blocked runs terminate through `autonomous_safety_stop` instead
+of pausing silently.
+
+### Agentic capability loop
+
+- **Cross-run memory** (`supportmaster/tools/memory_tools.py`): resolved cases
+  persist to a tenant-scoped SQLite FTS5 index at run completion; investigation
+  and root-cause agents retrieve similar past fixes through a real ADK
+  `FunctionTool` whose tenant comes from session state, never model arguments.
+- **Web grounding**: duplicate and evidence agents carry ADK's built-in
+  `google_search` tool under an instruction-level WEB SEARCH POLICY — public
+  sources only, mandatory source URLs, EXTERNAL labeling, and external findings
+  can never clear or fail a deterministic gate.
+- **Diagnose-before-retry self-healing**: failed validation routes through a
+  deterministic `failure_diagnosis` node that feeds escalating strategy
+  directives (`REPRODUCE_AND_ISOLATE → NARROW_DIFF_SCOPE → ALTERNATIVE_APPROACH`)
+  plus the last three failure warnings into the code-change agent before each
+  retry; exhausted attempts roll back via receipted Git rollback.
+- **Golden-path verified execution** (`scripts/golden-path.ps1`): one offline
+  command runs grant check → Git preflight → scoped patch on `demo-target/` →
+  real unittest subprocess → receipted commit on a dedicated branch. Every step
+  emits an `ExternalOperationReceipt`.
+
 ## Hackathon Track
 
 Taskmaster
@@ -14,11 +68,12 @@ Early development.
 
 ## Model selection
 
-SupportMaster uses `SUPPORTMASTER_MODEL` as its default Gemini model. The
-runtime model picker should use `supportmaster.config.supported_models()` and
-create each execution through `supportmaster.agent.create_root_agent(model)`.
-That factory creates an isolated agent tree, so a selected model affects only
-the workflow run that chose it.
+SupportMaster runs on **Gemini 3.5 or newer** by default (`gemini-3.5-flash`)
+to satisfy hackathon eligibility rules. The runtime model picker uses
+`supportmaster.config.supported_models()` and creates each execution through
+`supportmaster.agent.create_root_agent(model)`. That factory creates an
+isolated agent tree, so a selected model affects only the workflow run that
+chose it. Deployments can tailor the allow-list with `SUPPORTMASTER_MODELS`.
 
 Copy `.env.example` to `.env`, add `GOOGLE_API_KEY`, and optionally tailor the
 picker allow-list with `SUPPORTMASTER_MODELS`.
@@ -180,7 +235,17 @@ runner or local UI.
 
 ## Verification
 
-Run the offline golden-path demo with:
+Run the verified autonomous-fix golden path against the bundled fixture:
+
+```powershell
+.\scripts\golden-path.ps1
+```
+
+This seeds `.demo-workspace/`, applies the authorization-checked scoped fix,
+runs the regression tests for real, and commits on
+`supportmaster/sup-golden` — printing JSON receipts for every operation.
+
+Run the offline functional demo with:
 
 ```powershell
 .\.venv\Scripts\python.exe -m supportmaster.demo reset
@@ -205,4 +270,18 @@ python -m unittest discover -s tests -v
 
 These tests do not call Gemini or require network access. Live ADK execution
 still requires a valid API key and an account-enabled model.
+
+## Google Cloud deployment
+
+The included `Dockerfile` is Cloud Run-ready (respects `$PORT`, non-root user,
+liveness/readiness probes). One-command deploy:
+
+```powershell
+.\scripts\deploy-cloudrun.ps1 -ProjectId <your-gcp-project> -Region us-central1
+```
+
+The script builds the image with Cloud Build, stores the API key in Secret
+Manager, deploys both the web service and durable worker on Cloud Run Jobs,
+and prints the public URL. Full step-by-step instructions live in
+`docs/gcp-deployment.md`.
 
