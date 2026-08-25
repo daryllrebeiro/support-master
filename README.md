@@ -291,3 +291,12 @@ Manager, deploys both the web service and durable worker on Cloud Run Jobs,
 and prints the public URL. Full step-by-step instructions live in
 `docs/gcp-deployment.md`.
 
+### Cloud Trace observability
+
+When `GOOGLE_CLOUD_PROJECT` is set and the optional
+`opentelemetry-exporter-gcp-trace` package is installed
+(`pip install opentelemetry-exporter-gcp-trace`), workflow spans are exported
+to **Cloud Trace** in addition to the console — making the multi-agent run
+visible in the Google Cloud console. Without it, SupportMaster keeps the
+zero-dependency console exporter so local demos never require GCP.
+
