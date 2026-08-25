@@ -1,0 +1,1 @@
+"""Read-only ADK tools exposed to SupportMaster agents."""

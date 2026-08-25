@@ -25,6 +25,7 @@ from ..agents.validation_agent import validation_agent
 from ..agents.workflow_control_agent import workflow_control_agent
 from ..agents.workflow_summary_agent import workflow_summary_agent
 from ..config import select_model
+from ..tools.memory_tools import build_memory_tool
 from ..execution import (
     PublicationExecutionResult,
     PublicationExecutor,
@@ -49,11 +50,19 @@ from ..workflow_state import (
     issue_authorization,
 )
 from .orchestration_nodes import investigation_evidence_fan_in
-from .terminal_nodes import autonomous_safety_stop
+from .terminal_nodes import autonomous_safety_stop, memory_record_node
 
 
-def _clone_agent(agent: Agent, model_name: str) -> Agent:
-    cloned = agent.clone(update={"model": model_name})
+def _clone_agent(
+    agent: Agent,
+    model_name: str,
+    *,
+    extra_tools: tuple = (),
+) -> Agent:
+    update: dict = {"model": model_name}
+    if extra_tools:
+        update["tools"] = list(getattr(agent, "tools", []) or []) + list(extra_tools)
+    cloned = agent.clone(update=update)
     cloned.parent_agent = None
     return cloned
 
@@ -251,12 +260,19 @@ def create_publishing_gate_workflow(
     if max_concurrency < 2:
         raise ValueError("max_concurrency must be at least two for read-only fan-out.")
     selected_model = select_model(model_name)
+    # Cross-run memory is exposed as a read-only, tenant-scoped tool so the
+    # investigation and root-cause agents can retrieve similar past fixes.
+    memory_tool = build_memory_tool()
     ticket = _clone_agent(ticket_analysis_agent, selected_model)
-    investigation = _clone_agent(investigation_agent, selected_model)
+    investigation = _clone_agent(
+        investigation_agent, selected_model, extra_tools=(memory_tool,)
+    )
     duplicate = _clone_agent(duplicate_work_agent, selected_model)
     evidence = _clone_agent(evidence_agent, selected_model)
     repository = _clone_agent(repository_agent, selected_model)
-    root_cause = _clone_agent(root_cause_agent, selected_model)
+    root_cause = _clone_agent(
+        root_cause_agent, selected_model, extra_tools=(memory_tool,)
+    )
     remediation = _clone_agent(remediation_agent, selected_model)
     review = _clone_agent(review_agent, selected_model)
     code_change = _clone_agent(code_change_agent, selected_model)
@@ -365,6 +381,6 @@ def create_publishing_gate_workflow(
                     "SAFETY_STOP": autonomous_safety_stop,
                 },
             ),
-            (workflow_summary, workflow_control),
+            (workflow_summary, memory_record_node, workflow_control),
         ],
     )
