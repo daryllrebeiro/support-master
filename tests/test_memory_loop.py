@@ -122,10 +122,18 @@ class MemoryGraphWiringTests(unittest.TestCase):
             )
 
     def test_other_agents_remain_tool_free(self) -> None:
+        # Only memory retrieval (investigation, root-cause) and web grounding
+        # (evidence, duplicate) are intentional tool bindings.
+        tool_allowed = {
+            "investigation_agent",
+            "root_cause_agent",
+            "evidence_agent",
+            "duplicate_work_agent",
+        }
         for node in self.graph.nodes:
             if not hasattr(node, "tools"):
                 continue
-            if node.name in {"investigation_agent", "root_cause_agent"}:
+            if node.name in tool_allowed:
                 continue
             self.assertFalse(
                 getattr(node, "tools", []),

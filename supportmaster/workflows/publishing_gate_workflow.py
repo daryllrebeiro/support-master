@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from google.adk.agents import Agent
 from google.adk.agents.context import Context
+from google.adk.tools import google_search
 from google.adk.workflow import START, JoinNode, Workflow, node
 
 from ..agents.audit_agent import audit_agent
@@ -267,8 +268,15 @@ def create_publishing_gate_workflow(
     investigation = _clone_agent(
         investigation_agent, selected_model, extra_tools=(memory_tool,)
     )
-    duplicate = _clone_agent(duplicate_work_agent, selected_model)
-    evidence = _clone_agent(evidence_agent, selected_model)
+    # Web grounding: duplicate and evidence agents may consult PUBLIC sources
+    # (known-issue reports, advisories, vendor docs) with mandatory citations.
+    # Deterministic gates remain the sole authority over routing decisions.
+    duplicate = _clone_agent(
+        duplicate_work_agent, selected_model, extra_tools=(google_search,)
+    )
+    evidence = _clone_agent(
+        evidence_agent, selected_model, extra_tools=(google_search,)
+    )
     repository = _clone_agent(repository_agent, selected_model)
     root_cause = _clone_agent(
         root_cause_agent, selected_model, extra_tools=(memory_tool,)

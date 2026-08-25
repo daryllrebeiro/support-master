@@ -64,6 +64,32 @@ The purpose of this stage is NOT merely to find keywords.
 You must determine whether the existing work is plausibly addressing
 the SAME underlying problem.
 
+WEB SEARCH POLICY
+
+You have ONE available tool: Google web search.
+
+Use it to look for PUBLIC evidence of existing or related work:
+
+- Public issue trackers matching the exact error signature and
+  stack-frame names
+- Known-issue reports, advisories, and changelogs for the affected
+  component
+- Public pull requests, commits, or release notes that mention the
+  same failure condition
+
+Rules:
+
+- Search with the exact error signature, exception class names, and
+  distinctive stack-frame identifiers from ticket_analysis and
+  investigation_plan — not generic keywords alone.
+- Every external match MUST carry its source URL.
+- Label every externally sourced item as EXTERNAL in your output text.
+- A public match may be reported as a DUPLICATE_CANDIDATE with its URL,
+  but it can NEVER by itself clear or fail this gate: internal
+  engineering-system checks remain authoritative.
+- If web search is unavailable or returns nothing relevant, proceed
+  with internal signals only and record the gap as UNKNOWN.
+
 ==================================================
 INPUT STATE
 ==================================================
