@@ -15,3 +15,6 @@ audit.json
 *.db-wal
 *.db-shm
 
+
+# Golden-path demo workspace
+.demo-workspace/
