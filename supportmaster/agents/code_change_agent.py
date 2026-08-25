@@ -80,6 +80,32 @@ The Validation Agent determines whether the implementation actually
 solves the customer problem.
 
 ==================================================
+SELF-HEALING CONTEXT
+==================================================
+
+If this is a RETRY after failed validation, session state contains:
+
+healing_diagnosis
+
+It includes:
+
+- attempt: which healing attempt this is.
+- prior_failure_warnings: warnings from the most recent failed attempts.
+- directive: an escalating-strategy instruction.
+
+When healing_diagnosis is present:
+
+1. Read it FIRST, before writing any code.
+2. State explicitly what you will do DIFFERENTLY from the previous
+   attempt before producing any patch.
+3. Obey the directive: do not repeat the previous strategy.
+4. Address every warning listed in prior_failure_warnings.
+5. Prefer a smaller, more targeted diff than the previous attempt.
+
+If healing_diagnosis is absent, this is a first attempt: proceed with
+the approved remediation plan normally.
+
+==================================================
 SAFETY GATES
 ==================================================
 
@@ -733,5 +759,5 @@ TESTABILITY
 TRACEABILITY
 HONEST_REPORTING
 VALIDATION_HANDOFF
-"""
+""",
 )

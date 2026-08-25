@@ -166,6 +166,37 @@ def validation_testing_gate(ctx: Context) -> dict:
     return decision.model_dump()
 
 
+def diagnose_validation_failure(ctx: Context) -> dict:
+    """Diagnose validation failures before each self-healing retry.
+
+    Feeds an escalating-strategy directive into the code-change agent so
+    retries change approach instead of repeating the failed strategy.
+    """
+    failures = list(ctx.state.to_dict().get("validation_failures", []))
+    attempt = len(failures)
+    strategies = [
+        "REPRODUCE_AND_ISOLATE",
+        "NARROW_DIFF_SCOPE",
+        "ALTERNATIVE_APPROACH",
+    ]
+    diagnosis = {
+        "attempt": attempt,
+        "prior_failure_warnings": [
+            failure.get("warnings") for failure in failures[-3:]
+        ],
+        "directive": (
+            "Do NOT repeat the previous strategy. "
+            "Escalate to: "
+            f"{strategies[min(max(attempt - 1, 0), len(strategies) - 1)]}."
+        ),
+    }
+    ctx.state["healing_diagnosis"] = diagnosis
+    return diagnosis
+
+
+failure_diagnosis = node(name="failure_diagnosis")(diagnose_validation_failure)
+
+
 @node(name="publish_authorization_gate")
 def publish_authorization_gate(ctx: Context) -> dict:
     """Issue a publish grant immediately before Git/GitHub mutation."""
@@ -358,8 +389,12 @@ def create_publishing_gate_workflow(
                 {
                     "READY_FOR_PUBLISH": publish,
                     "SAFETY_STOP": autonomous_safety_stop,
-                    "RETRY_IMPLEMENTATION": code_change,
+                    "RETRY_IMPLEMENTATION": failure_diagnosis,
                 },
+            ),
+            (
+                failure_diagnosis,
+                code_change,
             ),
             (
                 publish,
