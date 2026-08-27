@@ -4,34 +4,99 @@ SupportMaster is an autonomous customer-support bug investigation and resolution
 
 It takes a support bug, gathers evidence, searches historical issues and code repositories, determines the likely root cause, proposes or implements a fix, runs tests, generates an RCA, and publishes only when the deterministic safety gates permit it. Explicit duplicates and malformed or unknown gate data stop the run. An incomplete duplicate search may continue read-only investigation, but it cannot authorize autonomous implementation or publication.
 
+## Phase 32: Repository workspace discovery
+
+Given a support case, SupportMaster can now connect to a tenant's GitHub,
+Bitbucket, or GitLab **workspace** (read-only) and automatically resolve
+**which repositories** to investigate before the Repository Agent runs:
+
+- Ranked discovery pipeline: static org-profile mapping → cross-run memory
+  hits → workspace metadata scoring → bounded targeted code search → optional
+  bounded LLM disambiguation (can only reorder/filter discovered candidates).
+- Provider-neutral `WorkspaceProvider` adapters with per-call receipts,
+  TTL caching, call budgets, and circuit-breaker fail-closed behavior.
+- Tenant org profile gains `workspace_connections` (write-only `secret_ref`,
+  `READ_ONLY` scope) and a `discovery_policy` with per-tenant caps.
+- Implementation authorization now rejects remediation plans targeting repos
+  outside the run's discovered set (`REPO_NOT_IN_DISCOVERY_SCOPE`).
+- Repository Agent tools (`read_discovered_file` / `search_discovered_code`)
+  are hard-scoped to the discovered repo set.
+
+Enable with `SUPPORTMASTER_DISCOVERY_ENABLED=true` plus the tenant's
+`discovery_policy.enabled`; see `docs/workspace-discovery-plan.md` and the
+fixtures in `fixtures/discovery/`.
+
 ## Architecture
 
-SupportMaster is a conditionally-routed ADK `Workflow` of 21 specialized agents,
-governed by deterministic graph gates rather than LLM self-verification:
+SupportMaster is an ADK `Workflow` of 21 specialized agents with a hard structural
+split between **immutable core safety skeleton gates** and **tenant-configurable capability nodes**
+bound through an explicit `AdapterRegistry`:
 
 ```mermaid
 graph TD
-    Intake[Ticket Intake<br/>Manual / API / Jira / Zendesk Webhooks] --> Duplicate[Duplicate Work Agent<br/>Google Search grounding]
-    Duplicate -->|new work| Scan[Evidence Agent<br/>Google Search grounding]
-    Duplicate -->|duplicate found| Stop1[Autonomous Safety Stop]
-    Scan --> FanOut{Parallel Investigation<br/>concurrency = 2}
-    FanOut --> Inv[Investigation Agent<br/>cross-run memory tool]
-    FanOut --> Rep[Repository Agent]
-    Inv --> Join[Deterministic Join Gate]
-    Rep --> Join
-    Join --> RootCause[Root Cause Agent<br/>cross-run memory tool]
-    RootCause --> Plan[Remediation Plan Agent]
-    Plan --> ImplGate{Implementation<br/>Authorization Gate}
-    ImplGate -- GRANTED --> Execute[Code Change Agent<br/>self-healing loop x3]
-    ImplGate -- DENIED --> Halt[Autonomous Safety Stop]
-    Execute --> Validate[Validation & Test Agents]
-    Validate -->|checks fail| Diagnose[Failure Diagnosis Node<br/>escalating strategy directive]
-    Diagnose --> Execute
-    Validate -->|checks pass| PubGate{Publication Gate}
-    PubGate -- GRANTED --> Publish[GitHub Publish Agent<br/>verified executor]
-    PubGate -- DENIED --> Review[HITL Review Queue<br/>co-pilot chat]
-    Review -->|APPROVE| Publish
-    Review -->|REJECT| Halt
+    classDef skeleton fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#b71c1c;
+    classDef capability fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20;
+    classDef adapter fill:#e3f2fd,stroke:#1565c0,stroke-width:1px,stroke-dasharray: 3 3,color:#0d47a1;
+    classDef gate fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#e65100;
+
+    subgraph Adapters ["Pluggable Vendor Adapters (AdapterRegistry)"]
+        Jira["Jira / Linear / Zendesk"]:::adapter
+        VCS["GitHub / GitLab / Bitbucket"]:::adapter
+        CI["GitHub Actions / GitLab CI"]:::adapter
+        Slack["Slack / Datadog"]:::adapter
+    end
+
+    subgraph Pipeline ["SupportMaster Modular Execution Pipeline"]
+        Intake["Capability: Ticket Intake"]:::capability
+        Gemma["Advisory Gemma 3 Triage<br/>(gemma-3-27b-it)"]:::capability
+        DupGate{"Core Gate: Duplicate Check"}:::skeleton
+        StopDup["Core: Autonomous Safety Stop"]:::skeleton
+        Evidence["Capability: Evidence Gathering<br/>(Google Search Grounding)"]:::capability
+        
+        subgraph FanOut ["Parallel Investigation (Concurrency = 2)"]
+            Inv["Capability: Investigation Agent<br/>(FTS5 Cross-Run Memory)"]:::capability
+            RepoDisc["Capability: Repository Discovery Agent<br/>(Metadata + AST Code Search)"]:::capability
+        end
+
+        JoinGate{"Core Gate: Deterministic Join"}:::skeleton
+        RCA["Capability: Root Cause Analysis"]:::capability
+        Plan["Capability: Remediation Plan"]:::capability
+        
+        ImplGate{"Core Gate: Implementation Authorization"}:::skeleton
+        StopImpl["Core: Autonomous Safety Stop"]:::skeleton
+        
+        CodeChange["Capability: Code Change Agent<br/>(Self-Healing Loop x3)"]:::capability
+        Diagnose["Capability: Failure Diagnosis<br/>(Escalating Directives)"]:::capability
+        Validate["Capability: CI Validation & Test Run"]:::capability
+        ValGate{"Core Gate: Validation Testing"}:::skeleton
+        
+        PubGate{"Core Gate: Publication Authorization"}:::skeleton
+        Review["Capability: HITL Review Queue<br/>(Co-Pilot Safety Chat)"]:::capability
+        Publish["Capability: Verified Publish Executor<br/>(Scoped PR / Commit Receipts)"]:::capability
+        AuditGate{"Core Gate: Final Audit Gate"}:::skeleton
+    end
+
+    Jira -.-> Intake
+    VCS -.-> RepoDisc
+    CI -.-> Validate
+    Slack -.-> Publish
+
+    Intake --> Gemma --> DupGate
+    DupGate -- "Duplicate Found" --> StopDup
+    DupGate -- "New Work" --> Evidence
+    Evidence --> FanOut
+    Inv --> JoinGate
+    RepoDisc --> JoinGate
+    JoinGate --> RCA --> Plan --> ImplGate
+    ImplGate -- "DENIED" --> StopImpl
+    ImplGate -- "GRANTED" --> CodeChange
+    CodeChange --> Validate --> ValGate
+    ValGate -- "Checks Fail (Retry < 3)" --> Diagnose --> CodeChange
+    ValGate -- "Checks Pass" --> PubGate
+    PubGate -- "DENIED" --> Review
+    Review -- "Scoped Grant" --> Publish
+    Review -- "REJECT" --> StopImpl
+    PubGate -- "GRANTED" --> Publish --> AuditGate
 ```
 
 Every mutation is receipted, every gate decision is persisted to the state
@@ -299,4 +364,17 @@ When `GOOGLE_CLOUD_PROJECT` is set and the optional
 to **Cloud Trace** in addition to the console — making the multi-agent run
 visible in the Google Cloud console. Without it, SupportMaster keeps the
 zero-dependency console exporter so local demos never require GCP.
+
+---
+
+## Modular Pipeline & Adapter Architecture (Phases 33–40)
+
+SupportMaster's platform architecture enforces a strict structural separation:
+- **Immutable Core Skeleton**: Safety gates (`duplicate_work_gate`, `investigation_evidence_join`, `implementation_authorization_gate`, `validation_testing_gate`, `publish_authorization_gate`, `final_audit_gate`, `autonomous_safety_stop`) cannot be disabled or bypassed by tenant configuration.
+- **One Agent Per Stage, Many Thin Adapters**: Stage agents reason solely on canonical data models (`SupportCase`, `RepositoryDescriptor`, `TestRunResult`, `CIStatus`, etc.) and consume capability handles (`CanFetchCase`, `CanSearchCode`, `CanTriggerCI`, `CanSendNotification`, etc.).
+- **Structural Gate Isolation**: Adapters contain zero reasoning and are structurally prevented via AST guardrails from writing or modifying gate states.
+- **Tenant Topology & Bindings**: Tenants configure which capability nodes run (`pipeline_topology`) and which registered adapter implements them (`adapter_bindings`), with write-time validation and graceful capability gap degradation.
+- **Adapter Conformance Test Suite**: Dedicated contract verification suite in `tests/conformance/` ensuring third-party adapters conform to canonical interfaces.
+
+For details on writing and registering new adapters, see [docs/adapters.md](docs/adapters.md).
 

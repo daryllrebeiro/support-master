@@ -10,18 +10,68 @@ Many hackathon submissions are simple wrappers around LLM text generation. Suppo
 
 ```mermaid
 graph TD
-    Intake[Ticket Intake / Webhooks] --> Duplicate[Duplicate Work Agent]
-    Duplicate --> Scan[Evidence Agent]
-    Scan --> FanOut{Parallel Investigation}
-    FanOut --> Inv[Investigation Agent]
-    FanOut --> Rep[Repository Agent]
-    Inv --> Join[Deterministic Join Gate]
-    Rep --> Join
-    Join --> RootCause[Root Cause Agent]
-    RootCause --> Plan[Remediation Plan Agent]
-    Plan --> SafetyGate{Safety Policy Gating}
-    SafetyGate -- PASS --> Execute[Code Change Agent]
-    SafetyGate -- BLOCKED --> Halt[Autonomous Safety Stop]
+    classDef skeleton fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#b71c1c;
+    classDef capability fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20;
+    classDef adapter fill:#e3f2fd,stroke:#1565c0,stroke-width:1px,stroke-dasharray: 3 3,color:#0d47a1;
+
+    subgraph Adapters ["Pluggable Vendor Adapters (AdapterRegistry)"]
+        Jira["Jira / Linear / Zendesk"]:::adapter
+        VCS["GitHub / GitLab / Bitbucket"]:::adapter
+        CI["GitHub Actions / GitLab CI"]:::adapter
+        Slack["Slack / Datadog"]:::adapter
+    end
+
+    subgraph Pipeline ["SupportMaster Modular Execution Pipeline"]
+        Intake["Capability: Ticket Intake"]:::capability
+        Gemma["Advisory Gemma 3 Triage<br/>(gemma-3-27b-it)"]:::capability
+        DupGate{"Core Gate: Duplicate Check"}:::skeleton
+        StopDup["Core: Autonomous Safety Stop"]:::skeleton
+        Evidence["Capability: Evidence Gathering<br/>(Google Search Grounding)"]:::capability
+        
+        subgraph FanOut ["Parallel Investigation (Concurrency = 2)"]
+            Inv["Capability: Investigation Agent<br/>(FTS5 Cross-Run Memory)"]:::capability
+            RepoDisc["Capability: Repository Discovery Agent<br/>(Metadata + AST Code Search)"]:::capability
+        end
+
+        JoinGate{"Core Gate: Deterministic Join"}:::skeleton
+        RCA["Capability: Root Cause Analysis"]:::capability
+        Plan["Capability: Remediation Plan"]:::capability
+        
+        ImplGate{"Core Gate: Implementation Authorization"}:::skeleton
+        StopImpl["Core: Autonomous Safety Stop"]:::skeleton
+        
+        CodeChange["Capability: Code Change Agent<br/>(Self-Healing Loop x3)"]:::capability
+        Diagnose["Capability: Failure Diagnosis<br/>(Escalating Directives)"]:::capability
+        Validate["Capability: CI Validation & Test Run"]:::capability
+        ValGate{"Core Gate: Validation Testing"}:::skeleton
+        
+        PubGate{"Core Gate: Publication Authorization"}:::skeleton
+        Review["Capability: HITL Review Queue<br/>(Co-Pilot Safety Chat)"]:::capability
+        Publish["Capability: Verified Publish Executor<br/>(Scoped PR / Commit Receipts)"]:::capability
+        AuditGate{"Core Gate: Final Audit Gate"}:::skeleton
+    end
+
+    Jira -.-> Intake
+    VCS -.-> RepoDisc
+    CI -.-> Validate
+    Slack -.-> Publish
+
+    Intake --> Gemma --> DupGate
+    DupGate -- "Duplicate Found" --> StopDup
+    DupGate -- "New Work" --> Evidence
+    Evidence --> FanOut
+    Inv --> JoinGate
+    RepoDisc --> JoinGate
+    JoinGate --> RCA --> Plan --> ImplGate
+    ImplGate -- "DENIED" --> StopImpl
+    ImplGate -- "GRANTED" --> CodeChange
+    CodeChange --> Validate --> ValGate
+    ValGate -- "Checks Fail (Retry < 3)" --> Diagnose --> CodeChange
+    ValGate -- "Checks Pass" --> PubGate
+    PubGate -- "DENIED" --> Review
+    Review -- "Scoped Grant" --> Publish
+    Review -- "REJECT" --> StopImpl
+    PubGate -- "GRANTED" --> Publish --> AuditGate
 ```
 
 ### Key Differentiators

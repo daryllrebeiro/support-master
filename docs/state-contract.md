@@ -9,6 +9,7 @@ from the matching field in `SupportMasterState`.
 | Investigation | `investigation_plan` | `investigation_plan` |
 | Duplicate work | `duplicate_work_analysis` | `duplicate_work_analysis` |
 | Evidence | `evidence_analysis` | `evidence_analysis` |
+| Repository discovery (deterministic node) | `repository_discovery` | `repository_discovery` |
 | Repository | `repository_analysis` | `repository_analysis` |
 | Root cause | `root_cause_analysis` | `root_cause_analysis` |
 | Remediation | `remediation_plan` | `remediation_plan` |
@@ -92,6 +93,22 @@ run through `organization_id` and `organization_profile`. Organization policy
 can require evidence sources, duplicate checks, implementation/publication or
 production approval, and define allowed external actions; these values guide
 functional routing but never weaken deterministic safety gates.
+
+Repository workspace discovery is represented by `DiscoveryResult`
+(`models/discovery.py`) in the `repository_discovery` state field. The
+deterministic `repository_discovery_node` runs the ranked pipeline — static
+org-profile mapping, cross-run memory hits, workspace metadata scoring, and
+bounded targeted code search across the tenant's read-only GitHub/Bitbucket/
+GitLab connections — before the Repository Agent executes. Every external
+workspace read is receipted through `IntegrationGateway` (`READ_REPOSITORY`,
+DRY_RUN-safe) and appended to `operation_receipts`; structured candidates are
+mirrored under `integration_results["workspace_discovery"]`. When a provider
+fails or its circuit breaker opens, discovery degrades
+(`degraded=true`, `WORKSPACE_DISCOVERY_DEGRADED` uncertainty flag) and fails
+closed to static-mapping + memory candidates; it never blocks or fails the
+run. Completed runs record their selected repositories into cross-run memory
+(`case_memory_repos.resolved_repos`) so future cases get a HISTORICAL_CASE
+signal.
 
 Investigation artifacts are represented by `InvestigationSummary` and stored
 in `investigation_summaries`. The summary links ingested evidence records,

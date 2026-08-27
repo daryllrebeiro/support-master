@@ -66,35 +66,34 @@ generates an RCA, and publishes only when deterministic safety gates permit it.
 
 ### Technologies
 
-Gemini 3.5 Flash (default model; picker supports up to Gemini 3.6 Flash) ·
-Gemma 3 27B (advisory ticket triage via the Google GenAI SDK — bonus model
-integration) · Google ADK · Google GenAI SDK · Gemini google_search grounding ·
-Python 3.11 · Cloud Run · Secret Manager · Cloud Build · Artifact Registry ·
-SQLite (ADK sessions, run state, task queue, FTS5 memory, telemetry) ·
-Docker/Compose · OpenTelemetry-style spans · Server-Sent Events.
+Gemini 3.5 Flash (default reasoning model; catalog supports Gemini 3.5 Flash Lite and Gemini 3.6 Flash) ·
+Gemma 3 27B (`gemma-3-27b-it` for lightweight advisory ticket triage via the Google GenAI SDK — official bonus model
+integration) · Google Agent Development Kit (ADK, `google-adk==2.7.0`) · Google GenAI SDK (`google-genai`) ·
+Gemini `google_search` grounding · Python 3.11 · Google Cloud Run · Secret Manager · Cloud Build ·
+Artifact Registry · SQLite (ADK workflow sessions, durable task queue, FTS5 memory index, telemetry) ·
+Docker multi-stage runner · OpenTelemetry-compatible spans · Server-Sent Events (SSE).
 
 ### Data sources
 
-Customer-supplied support tickets (fixtures: SaaS auth failures, latency
-degradation, invoice-export OOM), issue-tracker webhook payloads (Jira,
-Zendesk), historical resolution memory index, organization context profiles
-(products, services, severity vocabulary, escalation rules), and repository
-search adapters. No external paid APIs are required; the offline demo runs
-fully reproducibly without network access.
+Inbound customer support tickets across multiple domains (fixtures for SaaS auth failures, gateway latency
+degradation, invoice export memory exhaustion), issue-tracker webhook payloads (Jira, Linear, Zendesk),
+historical resolution memory index (SQLite FTS5 virtual tables), organization context profiles
+(products, services, vocabulary, escalation matrices), and repository search adapters (GitHub, GitLab, Bitbucket).
+Zero paid third-party dependencies required; offline demo and test suites run completely deterministically.
 
-### What we learned
+### What we learned & Concrete Engineering Tradeoffs
 
-- LLM agents cannot be trusted to verify their own work — moving duplicate
-  detection, authorization, validation, and publication into *deterministic
-  graph gates* made autonomy safe enough to actually run unattended.
-- Durable execution matters more than clever prompting: worker leases,
-  idempotency keys, and checkpoints are what let a long multi-agent workflow
-  survive process interruptions.
-- Human-in-the-loop works best when the operator gets a conversational
-  co-pilot over real state (diffs, gate history, failure logs), not a bare
-  Approve button.
-- Memory across runs turns a ticket resolver into an organizational asset:
-  past resolutions measurably shorten new investigations.
+1. **LLM Self-Verification is Insufficient for Production**: In early iterations, having agents verify their own code changes led to subtle hallucinated test passes. Moving duplicate detection, authorization grants, test validation, and publication into *deterministic graph gates* (`evaluate_action_policy`) made autonomy safe enough to execute unattended.
+2. **Decoupling Reasoning from Vendors (Phases 33–40 Refactor)**: We originally had vendor-specific logic inside stage agents. We completely restructured this into a platform-wide rule: *one adapter-agnostic reasoning agent per pipeline stage, thin translation-only adapters behind capability protocols* (`CanFetchCase`, `CanSearchCode`, `CanRunTests`, `CanTriggerCI`). An automated AST guardrail (`test_adapter_gate_isolation.py`) enforces that no adapter can import or mutate gate states.
+3. **Diagnose-Before-Retry Self-Healing**: Blindly retrying code changes causes repetitive failure loops. We built a deterministic `failure_diagnosis` node that inspects previous failure warnings and feeds escalating strategy directives (`REPRODUCE_AND_ISOLATE` → `NARROW_DIFF_SCOPE` → `ALTERNATIVE_APPROACH`) before each retry, rolling back cleanly with a Git rollback receipt if 3 retries exhaust.
+4. **Conversational HITL Co-Pilot vs. Blind Approvals**: Human operators often reject autonomous actions if they don't understand the diff. Powering the Safety Review Co-pilot with Google GenAI over live workflow state (diffs, gate history, test traces) gave operators the confidence to grant scoped permissions (`IMPLEMENTATION` vs `PUBLISH`).
+
+## 4. Track & Special Prize Eligibility
+
+- **Primary Category**: **Taskmaster** ("a complete workflow, not just a chatbot... one that takes action... proves it can do the heavy lifting for you").
+- **Special Prize Eligible**: **Best Architectural Design** (strict multi-agent decoupling, immutable safety skeleton, AST guardrails, durable SQLite task queue leases/heartbeats, write-only credential redaction, and capability protocol matrix).
+- **Special Prize Eligible**: **Individual / Hobbyist** (project built and submitted by an independent developer).
+- **Bonus Model Integration**: **Gemma** (`gemma-3-27b-it` advisory ticket classifier in `supportmaster/triage.py`).
 
 ## 4. Pre-existing / third-party code disclosure
 
