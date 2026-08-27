@@ -1,0 +1,45 @@
+{
+  "name": "code_search_only_resolution",
+  "description": "Case whose only resolving signal is a targeted code search hit: no static mapping entry matches product/service/component.",
+  "case": {
+    "case_id": "SUP-DISC-1",
+    "tenant_id": "tenant-a",
+    "title": "Invoice CSV export crashes the worker",
+    "description": "Large invoice exports crash the export worker with OutOfMemoryError.",
+    "product": "Unknown Product",
+    "service": "Unmapped Service",
+    "metadata": {"technology": "Python"}
+  },
+  "ticket_text": "invoice_csv export crashes with OutOfMemoryError",
+  "organization_profile": {
+    "organization_id": "tenant-a",
+    "display_name": "Tenant A",
+    "discovery_policy": {"enabled": true},
+    "repository_mappings": {},
+    "workspace_connections": [
+      {"provider": "github", "workspace_id": "acme", "secret_ref": "env:GITHUB_WORKSPACE_TOKEN", "scope": "READ_ONLY"}
+    ]
+  },
+  "fake_workspace": {
+    "provider": "github",
+    "workspace_id": "acme",
+    "repositories": ["billing-api", "web", "docs"],
+    "files": {
+      "billing-api": {
+        "src/export/invoice_csv.py": "def export_invoices():\n    ...\n"
+      }
+    },
+    "code_matches": [
+      {
+        "repo": "billing-api",
+        "path": "src/export/invoice_csv.py",
+        "snippet": "invoice export streaming"
+      }
+    ]
+  },
+  "expected": {
+    "selected_contains": "github:acme/billing-api",
+    "sources_include": "CODE_SEARCH",
+    "static_mapping_hits": 0
+  }
+}

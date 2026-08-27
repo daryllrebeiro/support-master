@@ -1,0 +1,51 @@
+{
+  "name": "multi_provider_merge",
+  "description": "Two workspace connections (GitHub services + Bitbucket legacy monolith); the resolving code hit lives in the Bitbucket repo, so candidates from both providers must merge into one ranked list.",
+  "case": {
+    "case_id": "SUP-DISC-2",
+    "tenant_id": "tenant-a",
+    "title": "Invoice export OutOfMemoryError",
+    "description": "Streaming invoice export dies with OutOfMemoryError in the legacy stack.",
+    "product": null,
+    "service": null,
+    "metadata": {"technology": "Java"}
+  },
+  "ticket_text": "invoice export OutOfMemoryError",
+  "organization_profile": {
+    "organization_id": "tenant-a",
+    "display_name": "Tenant A",
+    "discovery_policy": {"enabled": true},
+    "repository_mappings": {},
+    "workspace_connections": [
+      {"provider": "github", "workspace_id": "acme", "secret_ref": "env:GITHUB_WORKSPACE_TOKEN", "scope": "READ_ONLY"},
+      {"provider": "bitbucket", "workspace_id": "acme-legacy", "secret_ref": "env:BITBUCKET_WORKSPACE_TOKEN", "scope": "READ_ONLY"}
+    ]
+  },
+  "fake_workspaces": [
+    {
+      "provider": "github",
+      "workspace_id": "acme",
+      "repositories": ["billing-api"],
+      "files": {},
+      "code_matches": []
+    },
+    {
+      "provider": "bitbucket",
+      "workspace_id": "acme-legacy",
+      "repositories": ["monolith"],
+      "files": {},
+      "code_matches": [
+        {
+          "repo": "monolith",
+          "path": "export/InvoiceCsv.java",
+          "snippet": "OutOfMemoryError while streaming invoice export"
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "selected_contains": "bitbucket:acme-legacy/monolith",
+    "sources_include": "CODE_SEARCH",
+    "providers_in_candidates": ["github", "bitbucket"]
+  }
+}
