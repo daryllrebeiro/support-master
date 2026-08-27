@@ -108,6 +108,77 @@ class InMemoryIssueTrackerAdapter:
             payload={"issue_key": issue_key, "body": body},
         )
 
+    # -- Capability Protocol compatibility --------------------------------
+    def search_issues(self, query: str) -> tuple[list[IssueRecord], ExternalOperationReceipt]:
+        return self.search(query)
+
+    def post_comment(self, case_id: str, body: str) -> ExternalOperationReceipt:
+        return self.add_comment(case_id, body)
+
+    def fetch_case(self, case_id: str):
+        from ..models.support_case import SupportCase
+
+        issue = self.issues.get(case_id)
+        if issue is None:
+            receipt = ExternalOperationReceipt(
+                operation_type="ISSUE_FETCH",
+                requested_action="fetch_case",
+                status="FAILED",
+                error=f"Issue {case_id} does not exist.",
+            )
+            return None, receipt
+
+        case = SupportCase(
+            case_id=issue.key,
+            external_id=issue.key,
+            title=issue.title,
+            description=issue.title,
+            customer_impact="Customer reported issue.",
+            status="RECEIVED",
+        )
+        receipt = ExternalOperationReceipt(
+            operation_type="ISSUE_FETCH",
+            requested_action="fetch_case",
+            status="SUCCEEDED",
+            external_id=issue.key,
+        )
+        return case, receipt
+
+    def update_case_status(self, case_id: str, status: str) -> ExternalOperationReceipt:
+        def operation() -> ExternalOperationReceipt:
+            if case_id not in self.issues:
+                return ExternalOperationReceipt(
+                    operation_type="ISSUE_STATUS_UPDATE",
+                    requested_action="update_case_status",
+                    status="FAILED",
+                    error=f"Issue {case_id} does not exist.",
+                )
+            issue = self.issues[case_id]
+            self.issues[case_id] = IssueRecord(
+                key=issue.key,
+                title=issue.title,
+                status=status,
+                url=issue.url,
+                labels=issue.labels,
+                metadata=issue.metadata,
+            )
+            return ExternalOperationReceipt(
+                operation_type="ISSUE_STATUS_UPDATE",
+                requested_action="update_case_status",
+                status="SUCCEEDED",
+                external_id=case_id,
+                details={"status": status},
+            )
+
+        return self.gateway.execute(
+            permission="WRITE_ISSUES",
+            target=case_id,
+            operation_type="ISSUE_STATUS_UPDATE",
+            requested_action="update_case_status",
+            operation=operation,
+            payload={"case_id": case_id, "status": status},
+        )
+
 
 class InMemoryCIAdapter:
     """Deterministic CI adapter with explicit trigger permissions."""
@@ -148,6 +219,16 @@ class InMemoryCIAdapter:
             payload={"pipeline": pipeline, "commit_sha": commit_sha, "parameters": dict(parameters or {})},
         )
 
+    def trigger_ci(
+        self,
+        pipeline: str,
+        *,
+        commit_sha: str,
+        parameters: Mapping[str, str] | None = None,
+    ) -> tuple[str | None, ExternalOperationReceipt]:
+        receipt = self.trigger(pipeline, commit_sha=commit_sha, parameters=parameters)
+        return receipt.external_id if receipt.status == "SUCCEEDED" else None, receipt
+
     def status(self, run_id: str) -> tuple[CIStatus, ExternalOperationReceipt]:
         status = self.runs.get(run_id, CIStatus(run_id=run_id, status="UNKNOWN"))
 
@@ -168,6 +249,9 @@ class InMemoryCIAdapter:
             operation=operation,
         )
         return status if receipt.status == "SUCCEEDED" else CIStatus(run_id=run_id, status="UNKNOWN"), receipt
+
+    def read_ci_status(self, run_id: str) -> tuple[CIStatus, ExternalOperationReceipt]:
+        return self.status(run_id)
 
 
 class InMemoryMonitoringAdapter:
@@ -257,3 +341,14 @@ class InMemoryNotificationAdapter:
             operation=operation,
             payload={"channel": channel, "message": message},
         )
+
+    def send_notification(
+        self, request: str | Any, channel: str | None = None
+    ) -> ExternalOperationReceipt:
+        if isinstance(request, str):
+            target_channel = channel or "general"
+            msg = request
+        else:
+            target_channel = getattr(request, "channel", channel or "general")
+            msg = getattr(request, "message", str(request))
+        return self.send(target_channel, msg)
