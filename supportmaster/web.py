@@ -1458,6 +1458,22 @@ class SupportMasterHandler(BaseHTTPRequestHandler):
             self._send_json({"enabled": enabled}, status=200)
             return
 
+        if path == "/api/organizations":
+            auth = AUTHENTICATOR.authenticate(self.headers)
+            if not self._authorized(auth, "AUDIT_READ"):
+                return
+            try:
+                assert auth.principal is not None
+                store = SQLiteRunStore(os.getenv("SUPPORTMASTER_RUN_DB", ".supportmaster/runs.db"))
+                profile = OrganizationContextService(store).get(auth.principal.tenant_id)
+                payload = profile.model_dump(mode="json")
+                for connection in payload.get("workspace_connections", []):
+                    connection["secret_ref"] = "***REDACTED***"
+                self._send_json(payload, status=200)
+            except KeyError as error:
+                self._send_json({"error": str(error)}, status=404)
+            return
+
         if path in {"/health/live", "/health/ready"}:
             auth = AUTHENTICATOR.authenticate(self.headers)
             if path.endswith("/ready") and not self._authorized(auth, "HEALTH_READ"):
@@ -1565,7 +1581,11 @@ class SupportMasterHandler(BaseHTTPRequestHandler):
                 profile = OrganizationProfile.model_validate(payload)
                 store = SQLiteRunStore(os.getenv("SUPPORTMASTER_RUN_DB", ".supportmaster/runs.db"))
                 saved = OrganizationContextService(store).save(profile)
-                self._send_json(saved.model_dump(mode="json"), status=200)
+                # secret_ref is write-only: never echo credential references back.
+                saved_payload = saved.model_dump(mode="json")
+                for connection in saved_payload.get("workspace_connections", []):
+                    connection["secret_ref"] = "***REDACTED***"
+                self._send_json(saved_payload, status=200)
             except (ValueError, TypeError, json.JSONDecodeError) as error:
                 self._send_json({"error": str(error)}, status=400)
             return
@@ -1701,7 +1721,7 @@ class SupportMasterHandler(BaseHTTPRequestHandler):
                     response_text = f"[Co-pilot Mock Response] Evaluating request: '{message}'. The proposed remediation is safe."
                 else:
                     client = genai.Client(api_key=api_key)
-                    model = os.getenv("SUPPORTMASTER_MODEL", "gemini-2.5-flash")
+                    model = DEFAULT_MODEL
                     system_instruction = """
                     You are the SupportMaster Safety Review Co-pilot.
                     Your goal is to answer questions from a human operator about a pending safety gate review task.

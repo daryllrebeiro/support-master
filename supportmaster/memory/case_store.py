@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from dataclasses import dataclass
@@ -15,14 +16,18 @@ class SimilarCase:
     root_cause: str
     resolution_summary: str
     similarity_rank: float
+    resolved_repos: list[str] | None = None
 
     def to_context_block(self) -> str:
-        return (
+        block = (
             f"[Similar past case: {self.case_id}]\n"
             f"  Title: {self.title}\n"
             f"  Root cause: {self.root_cause}\n"
             f"  How it was resolved: {self.resolution_summary}\n"
         )
+        if self.resolved_repos:
+            block += f"  Repositories involved: {', '.join(self.resolved_repos)}\n"
+        return block
 
 
 class CaseMemoryStore:
@@ -55,6 +60,12 @@ class CaseMemoryStore:
                     resolution_summary,
                     tags
                 );
+                CREATE TABLE IF NOT EXISTS case_memory_repos (
+                    case_id TEXT NOT NULL,
+                    tenant_id TEXT NOT NULL,
+                    resolved_repos TEXT NOT NULL DEFAULT '[]',
+                    PRIMARY KEY (case_id, tenant_id)
+                );
             """)
         finally:
             conn.close()
@@ -69,9 +80,17 @@ class CaseMemoryStore:
         root_cause: str,
         resolution_summary: str,
         tags: list[str] | None = None,
+        resolved_repos: list[str] | None = None,
     ) -> None:
-        """Persist a resolved case into the memory index."""
+        """Persist a resolved case into the memory index.
+
+        ``resolved_repos`` records which repositories fixed the issue as
+        ``provider:workspace/repo`` keys so future discovery runs can reuse
+        the answer. Stored in a plain side table because FTS5 virtual tables
+        cannot be altered to add columns.
+        """
         tag_str = " ".join(tags or [])
+        repos_json = json.dumps(list(resolved_repos or []))
         conn = self._connect()
         try:
             with conn:
@@ -83,6 +102,12 @@ class CaseMemoryStore:
                     "INSERT INTO case_memory(case_id, tenant_id, title, description, root_cause, resolution_summary, tags) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (case_id, tenant_id, title, description, root_cause, resolution_summary, tag_str),
+                )
+                conn.execute(
+                    "INSERT INTO case_memory_repos(case_id, tenant_id, resolved_repos) "
+                    "VALUES (?, ?, ?) "
+                    "ON CONFLICT(case_id, tenant_id) DO UPDATE SET resolved_repos = excluded.resolved_repos",
+                    (case_id, tenant_id, repos_json),
                 )
         finally:
             conn.close()
@@ -103,27 +128,45 @@ class CaseMemoryStore:
             return []
         conn = self._connect()
         try:
+            # FTS5 MATCH must reference the virtual table directly, so the
+            # ranked match runs in a subquery before joining the repos
+            # side table.
             rows = conn.execute(
                 """
-                SELECT case_id, title, root_cause, resolution_summary,
-                       rank AS similarity_rank
-                FROM case_memory
-                WHERE case_memory MATCH ? AND tenant_id = ?
-                ORDER BY rank
-                LIMIT ?
+                SELECT f.case_id, f.title, f.root_cause, f.resolution_summary,
+                       f.similarity_rank, r.resolved_repos
+                FROM (
+                    SELECT case_id, title, root_cause, resolution_summary,
+                           rank AS similarity_rank
+                    FROM case_memory
+                    WHERE case_memory MATCH ? AND tenant_id = ?
+                    ORDER BY rank
+                    LIMIT ?
+                ) f
+                LEFT JOIN case_memory_repos r
+                    ON r.case_id = f.case_id AND r.tenant_id = ?
                 """,
-                (sanitized, tenant_id, top_k),
+                (sanitized, tenant_id, top_k, tenant_id),
             ).fetchall()
-            return [
-                SimilarCase(
-                    case_id=row["case_id"],
-                    title=row["title"],
-                    root_cause=row["root_cause"],
-                    resolution_summary=row["resolution_summary"],
-                    similarity_rank=float(row["similarity_rank"] or 0.0),
+
+            results: list[SimilarCase] = []
+            for row in rows:
+                raw_repos = row["resolved_repos"] if "resolved_repos" in row.keys() else None
+                try:
+                    repos = json.loads(raw_repos) if raw_repos else []
+                except (TypeError, ValueError):
+                    repos = []
+                results.append(
+                    SimilarCase(
+                        case_id=row["case_id"],
+                        title=row["title"],
+                        root_cause=row["root_cause"],
+                        resolution_summary=row["resolution_summary"],
+                        similarity_rank=float(row["similarity_rank"] or 0.0),
+                        resolved_repos=[str(repo) for repo in repos],
+                    )
                 )
-                for row in rows
-            ]
+            return results
         except sqlite3.OperationalError:
             return []
         finally:

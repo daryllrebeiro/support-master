@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..models.organization import OrganizationProfile
+from ..pipeline.bindings import validate_bindings
+from ..pipeline.topology import validate_topology
 
 
 class OrganizationContextService:
@@ -27,6 +29,11 @@ class OrganizationContextService:
             return self.save(profile)
 
     def save(self, profile: OrganizationProfile) -> OrganizationProfile:
+        # Validate topology and bindings at write-time (ORG_ADMIN)
+        if getattr(profile, "pipeline_topology", None) is not None:
+            validate_topology(profile.pipeline_topology)
+        if getattr(profile, "adapter_bindings", None) is not None:
+            validate_bindings(profile.adapter_bindings)
         profile.updated_at = datetime.now(timezone.utc)
         return self.store.save_organization(profile)
 

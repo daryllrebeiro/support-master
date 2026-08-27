@@ -9,18 +9,18 @@ load_dotenv()
 
 DEFAULT_MODEL = os.getenv(
     "SUPPORTMASTER_MODEL",
-    "gemini-2.5-flash",
+    "gemini-3.5-flash",
 )
 
 # Backwards-compatible name used by the existing, default workflow instance.
 MODEL_NAME = DEFAULT_MODEL
 
 # These models support the text, tool-calling, and structured-output workflow
-# SupportMaster requires. Deployments can replace this catalog without a code
-# change when their Gemini account exposes a different approved set.
+# SupportMaster requires. The default catalog is limited to Gemini 3.5 or
+# newer per hackathon eligibility rules. Deployments can replace this catalog
+# without a code change when their Gemini account exposes a different
+# approved set (for example via SUPPORTMASTER_MODELS).
 _DEFAULT_SUPPORTED_MODELS = (
-    "gemini-2.5-flash",
-    "gemini-2.5-pro",
     "gemini-3.5-flash-lite",
     "gemini-3.5-flash",
     "gemini-3.6-flash",
@@ -41,6 +41,19 @@ def supported_models() -> tuple[str, ...]:
         else _DEFAULT_SUPPORTED_MODELS
     )
     return tuple(dict.fromkeys((*models, DEFAULT_MODEL)))
+
+
+def discovery_enabled() -> bool:
+    """Global kill-switch for repository workspace discovery (Phase 32).
+
+    Effective enablement also requires the tenant's
+    ``organization_profile.discovery_policy.enabled``; both must be on.
+    """
+    return os.getenv("SUPPORTMASTER_DISCOVERY_ENABLED", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
 
 
 def select_model(model_name: str | None = None) -> str:

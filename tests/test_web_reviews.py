@@ -150,7 +150,7 @@ class WebReviewsTests(unittest.TestCase):
             "run-1",
             task_name="adk_workflow",
             idempotency_key="run-1:adk_workflow",
-            payload={"issue": "reproduction text", "model_name": "gemini-2.5-flash"},
+            payload={"issue": "reproduction text", "model_name": "gemini-3.5-flash"},
         )
         
         headers = {

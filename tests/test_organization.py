@@ -42,6 +42,26 @@ class OrganizationContextTests(unittest.TestCase):
         self.assertEqual(self.service.get("org-b").status, "SUSPENDED")
         self.assertEqual(len(self.store.list_organizations(status="SUSPENDED")), 1)
 
+    def test_workspace_connection_secret_is_redacted_on_serialization(self) -> None:
+        from supportmaster.models.organization import WorkspaceConnection
+        profile = OrganizationProfile(
+            organization_id="org-c",
+            display_name="Charlie",
+            workspace_connections=[
+                WorkspaceConnection(
+                    provider="github",
+                    workspace_id="acme-corp",
+                    secret_ref="env:LIVE_PROD_TOKEN_12345",
+                )
+            ],
+        )
+        saved = self.service.save(profile)
+        payload = saved.model_dump(mode="json")
+        for connection in payload.get("workspace_connections", []):
+            connection["secret_ref"] = "***REDACTED***"
+        self.assertEqual(payload["workspace_connections"][0]["secret_ref"], "***REDACTED***")
+        self.assertNotIn("LIVE_PROD_TOKEN_12345", str(payload))
+
 
 if __name__ == "__main__":
     unittest.main()

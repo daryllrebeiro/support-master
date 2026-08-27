@@ -25,8 +25,9 @@ from ..agents.ticket_agent import ticket_analysis_agent
 from ..agents.validation_agent import validation_agent
 from ..agents.workflow_control_agent import workflow_control_agent
 from ..agents.workflow_summary_agent import workflow_summary_agent
-from ..config import select_model
+from ..config import discovery_enabled, select_model
 from ..tools.memory_tools import build_memory_tool
+from .discovery_nodes import build_repository_discovery_node
 from ..execution import (
     PublicationExecutionResult,
     PublicationExecutor,
@@ -329,16 +330,38 @@ def create_publishing_gate_workflow(
     )
     investigation_evidence_join = JoinNode(name="investigation_evidence_join")
 
-    return Workflow(
-        name="supportmaster_publishing_gate",
-        description=(
-            "SupportMaster's complete conditional workflow with duplicate, "
-            "review, implementation, validation, publish-authorization, "
-            "and final audit gates."
-        ),
-        state_schema=SupportMasterState,
-        max_concurrency=max_concurrency,
-        edges=[
+    # Phase 32: optional read-only workspace discovery ahead of the
+    # Repository Agent. When disabled, the legacy edges are built verbatim.
+    use_discovery = discovery_enabled()
+    if use_discovery:
+        repository_discovery = build_repository_discovery_node()
+
+    if use_discovery:
+        discovery_edges = [
+            (
+                START,
+                ticket,
+                investigation,
+                duplicate,
+                duplicate_work_gate,
+                {
+                    "CONTINUE": (evidence, repository_discovery),
+                    "SAFETY_STOP": autonomous_safety_stop,
+                },
+            ),
+            # M4 will replace this unconditional edge with a route map through
+            # the bounded disambiguation agent when one is configured.
+            (
+                repository_discovery,
+                repository,
+            ),
+            (
+                (evidence, repository),
+                investigation_evidence_join,
+            ),
+        ]
+    else:
+        discovery_edges = [
             (
                 START,
                 ticket,
@@ -354,6 +377,19 @@ def create_publishing_gate_workflow(
                 (evidence, repository),
                 investigation_evidence_join,
             ),
+        ]
+
+    return Workflow(
+        name="supportmaster_publishing_gate",
+        description=(
+            "SupportMaster's complete conditional workflow with duplicate, "
+            "review, implementation, validation, publish-authorization, "
+            "and final audit gates."
+        ),
+        state_schema=SupportMasterState,
+        max_concurrency=max_concurrency,
+        edges=[
+            *discovery_edges,
             (
                 investigation_evidence_join,
                 investigation_evidence_fan_in,

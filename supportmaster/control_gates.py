@@ -111,6 +111,48 @@ def evaluate_review_gate(state: Mapping[str, Any]) -> GateDecision:
     )
 
 
+def _discovery_scope_violation(state: Mapping[str, Any]) -> str | None:
+    """Return ``REPO_NOT_IN_DISCOVERY_SCOPE`` when a plan escapes discovery.
+
+    Deterministic check: when ``repository_discovery.selected`` is populated
+    (discovery ran and found repos), every repository the remediation plan
+    declares it will touch must reference one of those repos — by full
+    ``provider:workspace/repo`` key or by repo slug. Plans that declare no
+    components, or runs where discovery did not run/selected nothing, keep
+    legacy behavior unchanged.
+    """
+    discovery = state.get("repository_discovery")
+    if not isinstance(discovery, dict):
+        return None
+    selected_refs = [
+        ref for ref in (discovery.get("selected") or []) if isinstance(ref, dict)
+    ]
+    if not selected_refs:
+        return None
+    selected_repos = {
+        str(ref.get("repo", "")).casefold() for ref in selected_refs
+    } - {""}
+    selected_keys = {
+        f"{ref.get('provider', '')}:{ref.get('workspace_id', '')}/{ref.get('repo', '')}".casefold()
+        for ref in selected_refs
+    }
+    plan = state.get("remediation_plan")
+    plan_dict = plan if isinstance(plan, dict) else {}
+    declared = [str(item) for item in (
+        list(plan_dict.get("affected_components") or [])
+        + list(plan_dict.get("files_or_areas_to_review") or [])
+    )]
+    if not declared:
+        return None
+    for item in declared:
+        folded = item.casefold()
+        if any(key in folded for key in selected_keys):
+            return None
+        if any(repo in folded for repo in selected_repos):
+            return None
+    return "REPO_NOT_IN_DISCOVERY_SCOPE"
+
+
 def evaluate_action_policy(
     state: Mapping[str, Any],
     action: ActionType,
@@ -176,6 +218,25 @@ def evaluate_action_policy(
                 blocking_reasons=review.blocking_reasons or ["IMPLEMENTATION_REVIEW_NOT_APPROVED"],
                 required_actions=review.required_actions,
                 evidence_keys=review.evidence_keys,
+                policy_version=policy_version,
+            )
+        # Phase 32: when workspace discovery ran for this case, a grant may
+        # only cover repositories the investigation actually discovered.
+        violation = _discovery_scope_violation(state)
+        if violation:
+            return PolicyDecision(
+                action=action,
+                disposition="DENY",
+                reason=(
+                    "Remediation targets a repository outside the "
+                    "discovered investigation scope."
+                ),
+                blocking_reasons=[violation],
+                required_actions=[
+                    "Re-run discovery/investigation so the target repository "
+                    "is part of this case's discovered repo set."
+                ],
+                evidence_keys=["repository_discovery", "remediation_plan"],
                 policy_version=policy_version,
             )
         return PolicyDecision(

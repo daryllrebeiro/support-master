@@ -15,9 +15,19 @@ def record_completed_run_to_memory(ctx: Context) -> dict:
         return {}
     try:
         from ..memory.retriever import CaseContextRetriever
+        from ..models.discovery import RepoRef
 
         case = state.get("support_case") or {}
         rca = state.get("root_cause_analysis") or {}
+        # Record which repositories this run actually used so future
+        # discovery runs get a HISTORICAL_CASE signal (fail-open).
+        resolved_repos: list[str] = []
+        discovery = state.get("repository_discovery") or {}
+        for ref_payload in discovery.get("selected", []) if isinstance(discovery, dict) else []:
+            try:
+                resolved_repos.append(RepoRef.model_validate(ref_payload).key())
+            except Exception:
+                continue
         CaseContextRetriever().record_resolution(
             case_id=str(case.get("case_id", "")),
             tenant_id=str(state.get("tenant_id", "default")),
@@ -25,6 +35,7 @@ def record_completed_run_to_memory(ctx: Context) -> dict:
             description=str(case.get("description", ""))[:2000],
             root_cause=str(rca.get("primary_root_cause") or rca)[:2000],
             resolution_summary=str(state.get("workflow_summary_text", ""))[:2000],
+            resolved_repos=resolved_repos,
         )
         ctx.state["memory_recorded"] = True
     except Exception as error:

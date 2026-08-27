@@ -23,6 +23,7 @@ from .models.control import (
     TerminalOutcome,
 )
 from .models.customer_response import CustomerResponse
+from .models.discovery import DiscoveryResult
 from .models.duplicate_work import DuplicateWorkAnalysis
 from .models.evidence import EvidenceAnalysis
 from .models.evidence_record import EvidenceBundle, EvidenceRecord
@@ -94,6 +95,7 @@ OUTPUT_KEY_TO_STATE_FIELD: dict[str, str] = {
     "investigation_plan": "investigation_plan",
     "duplicate_work_analysis": "duplicate_work_analysis",
     "evidence_analysis": "evidence_analysis",
+    "repository_discovery": "repository_discovery",
     "repository_analysis": "repository_analysis",
     "root_cause_analysis": "root_cause_analysis",
     "remediation_plan": "remediation_plan",
@@ -125,6 +127,7 @@ class SupportMasterState(BaseModel):
     evidence_analysis: Optional[EvidenceAnalysis] = None
     evidence_bundle: Optional[EvidenceBundle] = None
     evidence_records: list[EvidenceRecord] = Field(default_factory=list)
+    repository_discovery: Optional[DiscoveryResult] = None
     repository_analysis: Optional[RepositoryAnalysis] = None
     root_cause_analysis: Optional[RootCauseAnalysis] = None
     remediation_plan: Optional[RemediationPlan] = None

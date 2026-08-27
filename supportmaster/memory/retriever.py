@@ -42,8 +42,13 @@ class CaseContextRetriever:
         root_cause: str,
         resolution_summary: str,
         tags: list[str] | None = None,
+        resolved_repos: list[str] | None = None,
     ) -> None:
-        """Persist a newly resolved case to the memory store."""
+        """Persist a newly resolved case to the memory store.
+
+        ``resolved_repos`` (``provider:workspace/repo`` keys) feeds future
+        repository discovery's HISTORICAL_CASE signal.
+        """
         self._store.record(
             case_id=case_id,
             tenant_id=tenant_id,
@@ -52,4 +57,5 @@ class CaseContextRetriever:
             root_cause=root_cause,
             resolution_summary=resolution_summary,
             tags=tags,
+            resolved_repos=resolved_repos,
         )

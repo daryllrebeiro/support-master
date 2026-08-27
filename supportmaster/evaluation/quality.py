@@ -32,8 +32,39 @@ def run_quality_pack(
             checks[f"e2e:{step.name}"] += 1
             if step.status == "FAIL":
                 failures.append(f"{result.scenario_id}:e2e:{step.name}")
+    # Phase 40: Modularity & Adapter architecture validation
+    try:
+        from ..pipeline.registry import default_registry
+        from ..pipeline.topology import validate_topology, TopologyValidationError
+        from ..pipeline.bindings import validate_bindings, BindingValidationError
+        from ..models.organization import PipelineTopology, AdapterBindingsConfig, AdapterBindingEntry
+
+        # 1. Topology rejects skeleton tampering
+        try:
+            validate_topology(PipelineTopology(enabled_capability_nodes=["ticket_intake", "duplicate_work_gate"]))
+            failures.append("modularity:skeleton_tampering_allowed")
+        except TopologyValidationError:
+            checks["modularity:skeleton_tampering_rejected"] += 1
+
+        # 2. Binding rejects unregistered adapter
+        try:
+            validate_bindings(
+                AdapterBindingsConfig(bindings={"ticket_intake": AdapterBindingEntry(adapter_id="nonexistent")}),
+                default_registry,
+            )
+            failures.append("modularity:unregistered_adapter_allowed")
+        except BindingValidationError:
+            checks["modularity:unregistered_adapter_rejected"] += 1
+
+        # 3. Valid default topology & registered adapters
+        validate_topology(PipelineTopology())
+        checks["modularity:default_topology_valid"] += 1
+        categories["modularity"] = 3
+    except Exception as exc:
+        failures.append(f"modularity:error:{exc}")
+
     return QualityPackResult(
-        status="PASS" if functional.status == "PASS" and end_to_end.status == "PASS" else "FAIL",
+        status="PASS" if functional.status == "PASS" and end_to_end.status == "PASS" and not failures else "FAIL",
         functional=functional,
         end_to_end=end_to_end,
         category_counts=dict(categories),

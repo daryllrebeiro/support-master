@@ -1,8 +1,10 @@
 import unittest
 
 from supportmaster.control_gates import (
+    evaluate_action_policy,
     evaluate_audit_gate,
     evaluate_duplicate_gate,
+    evaluate_implementation_authorization_gate,
     evaluate_review_gate,
     evaluate_validation_gate,
 )
@@ -11,6 +13,18 @@ from supportmaster.models.duplicate_work import DuplicateWorkAnalysis
 from supportmaster.models.review import ReviewAnalysis
 from supportmaster.models.test_result import TestResult
 from supportmaster.models.validation import ValidationAnalysis
+
+
+def discovery_selected(*keys: str) -> dict:
+    """Build a repository_discovery payload with the given repo keys."""
+    selected = []
+    for key in keys:
+        provider, rest = key.split(":", 1)
+        workspace, repo = rest.split("/", 1)
+        selected.append(
+            {"provider": provider, "workspace_id": workspace, "repo": repo}
+        )
+    return {"selected": selected, "degraded": False}
 
 
 def duplicate_result(status: str) -> DuplicateWorkAnalysis:
@@ -161,6 +175,73 @@ class ControlGateTests(unittest.TestCase):
             ).route,
             "SAFETY_STOP",
         )
+
+
+class DiscoveryScopeTests(unittest.TestCase):
+    """Phase 32: grants cannot cover repos outside the discovered set."""
+
+    def _state(self, components: list[str], discovery: dict | None) -> dict:
+        state = {
+            "duplicate_work_analysis": duplicate_result("NO_DUPLICATE_FOUND"),
+            "review_analysis": review_result(),
+            "remediation_plan": {"affected_components": components},
+        }
+        if discovery is not None:
+            state["repository_discovery"] = discovery
+        return state
+
+    def test_plan_targeting_discovered_repo_is_allowed(self) -> None:
+        policy, decision = evaluate_implementation_authorization_gate(
+            self._state(
+                ["billing-api export worker"],
+                discovery_selected("github:acme/billing-api"),
+            )
+        )
+        self.assertEqual(policy.disposition, "ALLOW")
+        self.assertEqual(decision.route, "READY_FOR_IMPLEMENTATION")
+
+    def test_full_repo_key_component_is_allowed(self) -> None:
+        policy, _ = evaluate_implementation_authorization_gate(
+            self._state(
+                ["github:acme/billing-api"],
+                discovery_selected("github:acme/billing-api", "github:acme/web"),
+            )
+        )
+        self.assertEqual(policy.disposition, "ALLOW")
+
+    def test_out_of_scope_repo_is_rejected(self) -> None:
+        policy, decision = evaluate_implementation_authorization_gate(
+            self._state(
+                ["payments-ledger"],
+                discovery_selected("github:acme/billing-api"),
+            )
+        )
+        self.assertEqual(policy.disposition, "DENY")
+        self.assertIn("REPO_NOT_IN_DISCOVERY_SCOPE", policy.blocking_reasons)
+        self.assertEqual(decision.route, "SAFETY_STOP")
+
+    def test_no_discovery_keeps_legacy_behavior(self) -> None:
+        policy, decision = evaluate_implementation_authorization_gate(
+            self._state(["anything-at-all"], None)
+        )
+        self.assertEqual(policy.disposition, "ALLOW")
+        self.assertEqual(decision.route, "READY_FOR_IMPLEMENTATION")
+
+    def test_empty_selection_keeps_legacy_behavior(self) -> None:
+        policy, _ = evaluate_implementation_authorization_gate(
+            self._state(["anything-at-all"], {"selected": []})
+        )
+        self.assertEqual(policy.disposition, "ALLOW")
+
+    def test_policy_helper_reports_violation_directly(self) -> None:
+        policy = evaluate_action_policy(
+            self._state(
+                ["unrelated"],
+                discovery_selected("github:acme/billing-api"),
+            ),
+            "IMPLEMENTATION",
+        )
+        self.assertEqual(policy.disposition, "DENY")
 
 
 if __name__ == "__main__":
