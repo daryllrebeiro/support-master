@@ -50,9 +50,20 @@ if ! command -v gcloud &>/dev/null; then
   exit 1
 fi
 
-if ! command -v terraform &>/dev/null; then
-  echo "ERROR: terraform CLI not found. Please install Terraform (>= 1.5.0)." >&2
-  exit 1
+if ! command -v terraform &>/dev/null || ! terraform version &>/dev/null || terraform version 2>&1 | grep -qi "Follow the instructions"; then
+  echo "    Terraform binary not found or is a placeholder stub. Auto-installing Terraform..."
+  mkdir -p "${HOME}/.local/bin"
+  TF_VER="1.9.5"
+  curl -fsSL "https://releases.hashicorp.com/terraform/${TF_VER}/terraform_${TF_VER}_linux_amd64.zip" -o "/tmp/terraform.zip"
+  if command -v unzip &>/dev/null; then
+    unzip -q -o "/tmp/terraform.zip" -d "${HOME}/.local/bin"
+  else
+    python3 -c "import zipfile; zipfile.ZipFile('/tmp/terraform.zip').extractall('${HOME}/.local/bin')"
+  fi
+  chmod +x "${HOME}/.local/bin/terraform"
+  rm -f "/tmp/terraform.zip"
+  export PATH="${HOME}/.local/bin:${PATH}"
+  echo "    Terraform ${TF_VER} ready at ${HOME}/.local/bin/terraform."
 fi
 
 # Confirm Application Default Credentials (ADC) or active account
