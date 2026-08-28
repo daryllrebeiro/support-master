@@ -81,10 +81,25 @@ gcloud services enable \
   --quiet
 
 # -----------------------------------------------------------------------------
-# 4. Remote State GCS Bucket Bootstrap
+# 4. Ensure Artifact Registry Repository Exists
+# -----------------------------------------------------------------------------
+echo "==> [4/8] Ensuring Artifact Registry repository exists..."
+if ! gcloud artifacts repositories describe supportmaster --location="${GOOGLE_CLOUD_REGION}" &>/dev/null; then
+  echo "    Creating Docker repository 'supportmaster' in ${GOOGLE_CLOUD_REGION}..."
+  gcloud artifacts repositories create supportmaster \
+    --repository-format=docker \
+    --location="${GOOGLE_CLOUD_REGION}" \
+    --description="SupportMaster container images" \
+    --quiet
+else
+  echo "    Artifact Registry repository 'supportmaster' is ready."
+fi
+
+# -----------------------------------------------------------------------------
+# 5. Remote State GCS Bucket Bootstrap
 # -----------------------------------------------------------------------------
 STATE_BUCKET="${GOOGLE_CLOUD_PROJECT}-tfstate"
-echo "==> [4/8] Ensuring remote Terraform state bucket gs://${STATE_BUCKET} exists..."
+echo "==> [5/8] Ensuring remote Terraform state bucket gs://${STATE_BUCKET} exists..."
 
 if ! gcloud storage buckets describe "gs://${STATE_BUCKET}" &>/dev/null && ! gsutil ls "gs://${STATE_BUCKET}" &>/dev/null; then
   echo "    Creating GCS bucket gs://${STATE_BUCKET} in ${GOOGLE_CLOUD_REGION}..."
@@ -99,29 +114,6 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 5. Terraform Initialization & Targeted Pre-Apply
-# -----------------------------------------------------------------------------
-echo "==> [5/8] Initializing Terraform backend and enabling foundation services..."
-
-cd "${TF_DIR}"
-terraform init \
-  -backend-config="bucket=${STATE_BUCKET}" \
-  -backend-config="prefix=supportmaster/state" \
-  -reconfigure \
-  -input=false
-
-# Pre-apply APIs and Artifact Registry so the container repository exists before pushing
-echo "    Applying foundation: Google Cloud APIs and Artifact Registry..."
-terraform apply \
-  -target=google_project_service.apis \
-  -target=google_artifact_registry_repository.app_repo \
-  -var="project_id=${GOOGLE_CLOUD_PROJECT}" \
-  -var="region=${GOOGLE_CLOUD_REGION}" \
-  -var="image_tag=placeholder" \
-  -auto-approve \
-  -input=false
-
-# -----------------------------------------------------------------------------
 # 6. Build and Push Container Image via Cloud Build
 # -----------------------------------------------------------------------------
 echo "==> [6/8] Building and pushing container image via Cloud Build..."
@@ -134,11 +126,17 @@ echo "    Submitting build for tag: ${IMAGE_TAG}..."
 gcloud builds submit --tag "${IMAGE_TAG}" --quiet "${REPO_ROOT}"
 
 # -----------------------------------------------------------------------------
-# 7. Full Terraform Apply & Imperative Secret Value Injection
+# 7. Terraform Init, Full Apply & Imperative Secret Value Injection
 # -----------------------------------------------------------------------------
-echo "==> [7/8] Applying full Terraform infrastructure (Cloud Run Service + Worker Job)..."
+echo "==> [7/8] Applying Terraform infrastructure (Cloud Run Service + Worker Job)..."
 
 cd "${TF_DIR}"
+terraform init \
+  -backend-config="bucket=${STATE_BUCKET}" \
+  -backend-config="prefix=supportmaster/state" \
+  -reconfigure \
+  -input=false
+
 terraform apply \
   -var="project_id=${GOOGLE_CLOUD_PROJECT}" \
   -var="region=${GOOGLE_CLOUD_REGION}" \

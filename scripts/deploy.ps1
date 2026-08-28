@@ -68,10 +68,27 @@ gcloud services enable `
 if ($LASTEXITCODE -ne 0) { throw "gcloud services enable failed." }
 
 # -----------------------------------------------------------------------------
-# 4. Remote State GCS Bucket Bootstrap
+# 4. Ensure Artifact Registry Repository Exists
+# -----------------------------------------------------------------------------
+Write-Host "`n==> [4/8] Ensuring Artifact Registry repository exists..." -ForegroundColor Cyan
+$repoExists = gcloud artifacts repositories describe supportmaster --location=$Region 2>$null
+if (-not $repoExists) {
+    Write-Host "    Creating Docker repository 'supportmaster' in ${Region}..."
+    gcloud artifacts repositories create supportmaster `
+        --repository-format=docker `
+        --location=$Region `
+        --description="SupportMaster container images" `
+        --quiet | Out-Null
+    Write-Host "    Artifact Registry repository created successfully."
+} else {
+    Write-Host "    Artifact Registry repository 'supportmaster' is ready."
+}
+
+# -----------------------------------------------------------------------------
+# 5. Remote State GCS Bucket Bootstrap
 # -----------------------------------------------------------------------------
 $stateBucket = "${ProjectId}-tfstate"
-Write-Host "`n==> [4/8] Ensuring remote Terraform state bucket gs://${stateBucket} exists..." -ForegroundColor Cyan
+Write-Host "`n==> [5/8] Ensuring remote Terraform state bucket gs://${stateBucket} exists..." -ForegroundColor Cyan
 
 $bucketExists = gcloud storage buckets describe "gs://${stateBucket}" 2>$null
 if (-not $bucketExists) {
@@ -80,34 +97,6 @@ if (-not $bucketExists) {
     Write-Host "    Bucket created successfully."
 } else {
     Write-Host "    State bucket gs://${stateBucket} is ready."
-}
-
-# -----------------------------------------------------------------------------
-# 5. Terraform Initialization & Targeted Pre-Apply
-# -----------------------------------------------------------------------------
-Write-Host "`n==> [5/8] Initializing Terraform backend and enabling foundation services..." -ForegroundColor Cyan
-
-Push-Location $tfDir
-try {
-    terraform init `
-        -backend-config="bucket=${stateBucket}" `
-        -backend-config="prefix=supportmaster/state" `
-        -reconfigure `
-        -input=false
-    if ($LASTEXITCODE -ne 0) { throw "terraform init failed." }
-
-    Write-Host "    Applying foundation: Google Cloud APIs and Artifact Registry..."
-    terraform apply `
-        -target=google_project_service.apis `
-        -target=google_artifact_registry_repository.app_repo `
-        -var="project_id=$ProjectId" `
-        -var="region=$Region" `
-        -var="image_tag=placeholder" `
-        -auto-approve `
-        -input=false
-    if ($LASTEXITCODE -ne 0) { throw "Foundation terraform apply failed." }
-} finally {
-    Pop-Location
 }
 
 # -----------------------------------------------------------------------------
@@ -131,10 +120,17 @@ try {
 # -----------------------------------------------------------------------------
 # 7. Full Terraform Apply & Imperative Secret Value Injection
 # -----------------------------------------------------------------------------
-Write-Host "`n==> [7/8] Applying full Terraform infrastructure (Cloud Run Service + Worker Job)..." -ForegroundColor Cyan
+Write-Host "`n==> [7/8] Applying Terraform infrastructure (Cloud Run Service + Worker Job)..." -ForegroundColor Cyan
 
 Push-Location $tfDir
 try {
+    terraform init `
+        -backend-config="bucket=${stateBucket}" `
+        -backend-config="prefix=supportmaster/state" `
+        -reconfigure `
+        -input=false
+    if ($LASTEXITCODE -ne 0) { throw "terraform init failed." }
+
     terraform apply `
         -var="project_id=$ProjectId" `
         -var="region=$Region" `

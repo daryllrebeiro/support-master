@@ -26,13 +26,10 @@ resource "google_project_service" "apis" {
 # -----------------------------------------------------------------------------
 # 2. Artifact Registry Container Repository
 # -----------------------------------------------------------------------------
-resource "google_artifact_registry_repository" "app_repo" {
-  provider      = google
+data "google_artifact_registry_repository" "app_repo" {
   project       = var.project_id
   location      = var.region
   repository_id = "supportmaster"
-  description   = "Docker repository for SupportMaster container images"
-  format        = "DOCKER"
 
   depends_on = [google_project_service.apis]
 }
