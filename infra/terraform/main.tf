@@ -134,6 +134,28 @@ resource "google_cloud_run_v2_service" "web" {
           }
         }
       }
+
+      startup_probe {
+        initial_delay_seconds = 2
+        timeout_seconds       = 3
+        period_seconds        = 3
+        failure_threshold     = 10
+        http_get {
+          path = "/health/live"
+          port = 8001
+        }
+      }
+
+      liveness_probe {
+        initial_delay_seconds = 10
+        timeout_seconds       = 3
+        period_seconds        = 10
+        failure_threshold     = 3
+        http_get {
+          path = "/health/live"
+          port = 8001
+        }
+      }
     }
   }
 

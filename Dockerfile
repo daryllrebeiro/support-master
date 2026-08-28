@@ -1,30 +1,31 @@
-# Multi-stage production build for SupportMaster
-FROM python:3.11-slim AS builder
+# Production build for SupportMaster
+FROM python:3.11-slim
 
 WORKDIR /app
 
+# Prevent python from writing pyc files and enable unbuffered logging
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Install dependencies into standard system site-packages
 COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Production runner image
-FROM python:3.11-slim AS runner
-
-WORKDIR /app
-
-# Copy installed site-packages from builder
-COPY --from=builder /root/.local /root/.local
-ENV PATH=/root/.local/bin:$PATH
-
+# Copy repository source files
 COPY . .
 
-# Run as non-root user for security compliance
-RUN useradd -u 8888 appuser && chown -R appuser:appuser /app
+# Create durable sqlite data folder and set permissions for non-root user
+RUN mkdir -p /app/data && \
+    useradd -u 8888 appuser && \
+    chown -R appuser:appuser /app
+
 USER appuser
 
 EXPOSE 8001
 
 ENV PORT=8001
+ENV HOST=0.0.0.0
 ENV SUPPORTMASTER_RUN_DB=/app/data/runs.db
 
-# Command to execute the web server
+# Start SupportMaster web server
 CMD ["python", "-m", "supportmaster.web"]
