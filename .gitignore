@@ -27,3 +27,6 @@ audit.json
 *.tfvars
 *.auto.tfvars
 .env.deploy
+*.env.ps1
+scripts/local.env.ps1
+local.env.ps1
