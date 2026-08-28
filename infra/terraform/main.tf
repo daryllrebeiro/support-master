@@ -47,22 +47,18 @@ resource "google_service_account" "runtime" {
 }
 
 # -----------------------------------------------------------------------------
-# 4. Secret Manager Container (Value Injected Imperatively Outside Terraform)
+# 4. Secret Manager Container (Managed Out-of-Band for Zero State Leakage)
 # -----------------------------------------------------------------------------
-resource "google_secret_manager_secret" "api_key" {
+data "google_secret_manager_secret" "api_key" {
   project   = var.project_id
   secret_id = var.secret_name
-
-  replication {
-    auto {}
-  }
 
   depends_on = [google_project_service.apis]
 }
 
 resource "google_secret_manager_secret_iam_member" "runtime_access" {
   project   = var.project_id
-  secret_id = google_secret_manager_secret.api_key.secret_id
+  secret_id = data.google_secret_manager_secret.api_key.secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.runtime.email}"
 }
@@ -134,7 +130,7 @@ resource "google_cloud_run_v2_service" "web" {
         name = "GOOGLE_API_KEY"
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.api_key.secret_id
+            secret  = data.google_secret_manager_secret.api_key.secret_id
             version = "latest"
           }
         }
@@ -201,7 +197,7 @@ resource "google_cloud_run_v2_job" "worker" {
           name = "GOOGLE_API_KEY"
           value_source {
             secret_key_ref {
-              secret  = google_secret_manager_secret.api_key.secret_id
+              secret  = data.google_secret_manager_secret.api_key.secret_id
               version = "latest"
             }
           }

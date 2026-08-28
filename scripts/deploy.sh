@@ -96,10 +96,27 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 5. Remote State GCS Bucket Bootstrap
+# 5. Ensure Secret Manager Container & Inject Secret Payload Out-of-Band
+# -----------------------------------------------------------------------------
+# INLINE SECURITY ARCHITECTURE NOTE:
+# The secret container is ensured and populated here via gcloud CLI directly from
+# memory ($GOOGLE_API_KEY). Terraform binds to it via data source, guaranteeing
+# that raw API keys NEVER touch disk files, git history, or Terraform state.
+echo "==> [5/9] Ensuring Secret Manager container and injecting GOOGLE_API_KEY..."
+if ! gcloud secrets describe "google-api-key" --project="${GOOGLE_CLOUD_PROJECT}" &>/dev/null; then
+  echo "    Creating Secret Manager container 'google-api-key'..."
+  gcloud secrets create "google-api-key" --replication-policy="automatic" --project="${GOOGLE_CLOUD_PROJECT}" --quiet
+else
+  echo "    Secret container 'google-api-key' is ready."
+fi
+echo "    Injecting GOOGLE_API_KEY version..."
+printf "%s" "${GOOGLE_API_KEY}" | gcloud secrets versions add "google-api-key" --data-file=- --project="${GOOGLE_CLOUD_PROJECT}" --quiet
+
+# -----------------------------------------------------------------------------
+# 6. Remote State GCS Bucket Bootstrap
 # -----------------------------------------------------------------------------
 STATE_BUCKET="${GOOGLE_CLOUD_PROJECT}-tfstate"
-echo "==> [5/8] Ensuring remote Terraform state bucket gs://${STATE_BUCKET} exists..."
+echo "==> [6/9] Ensuring remote Terraform state bucket gs://${STATE_BUCKET} exists..."
 
 if ! gcloud storage buckets describe "gs://${STATE_BUCKET}" &>/dev/null && ! gsutil ls "gs://${STATE_BUCKET}" &>/dev/null; then
   echo "    Creating GCS bucket gs://${STATE_BUCKET} in ${GOOGLE_CLOUD_REGION}..."
@@ -114,9 +131,9 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 6. Build and Push Container Image via Cloud Build
+# 7. Build and Push Container Image via Cloud Build
 # -----------------------------------------------------------------------------
-echo "==> [6/8] Building and pushing container image via Cloud Build..."
+echo "==> [7/9] Building and pushing container image via Cloud Build..."
 
 cd "${REPO_ROOT}"
 COMMIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || date +%s)"
@@ -126,9 +143,9 @@ echo "    Submitting build for tag: ${IMAGE_TAG}..."
 gcloud builds submit --tag "${IMAGE_TAG}" --quiet "${REPO_ROOT}"
 
 # -----------------------------------------------------------------------------
-# 7. Terraform Init, Full Apply & Imperative Secret Value Injection
+# 8. Terraform Init & Full Infrastructure Apply
 # -----------------------------------------------------------------------------
-echo "==> [7/8] Applying Terraform infrastructure (Cloud Run Service + Worker Job)..."
+echo "==> [8/9] Applying Terraform infrastructure (Cloud Run Service + Worker Job)..."
 
 cd "${TF_DIR}"
 terraform init \
@@ -144,19 +161,10 @@ terraform apply \
   -auto-approve \
   -input=false
 
-# INLINE SECURITY ARCHITECTURE NOTE:
-# The Secret Manager secret *container* is created by Terraform above
-# (google_secret_manager_secret.api_key), but the secret *payload* is deliberately
-# injected below via gcloud CLI. This prevents sensitive API keys from ever being
-# written to disk, stored in terraform.tfvars, or recorded in plain text within
-# the Terraform state file.
-echo "    Injecting GOOGLE_API_KEY into Secret Manager..."
-printf "%s" "${GOOGLE_API_KEY}" | gcloud secrets versions add "google-api-key" --data-file=- --quiet
-
 # -----------------------------------------------------------------------------
-# 8. Live Health Check Verification
+# 9. Live Health Check Verification
 # -----------------------------------------------------------------------------
-echo "==> [8/8] Verifying live Cloud Run deployment health..."
+echo "==> [9/9] Verifying live Cloud Run deployment health..."
 
 SERVICE_URL="$(terraform output -raw service_url)"
 SERVICE_ACCOUNT="$(terraform output -raw service_account_email)"

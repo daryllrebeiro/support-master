@@ -85,10 +85,29 @@ if (-not $repoExists) {
 }
 
 # -----------------------------------------------------------------------------
-# 5. Remote State GCS Bucket Bootstrap
+# 5. Ensure Secret Manager Container & Inject Secret Payload Out-of-Band
+# -----------------------------------------------------------------------------
+# INLINE SECURITY ARCHITECTURE NOTE:
+# The secret container is ensured and populated here via gcloud CLI directly from
+# memory ($ApiKey). Terraform binds to it via data source, guaranteeing
+# that raw API keys NEVER touch disk files, git history, or Terraform state.
+Write-Host "`n==> [5/9] Ensuring Secret Manager container and injecting GOOGLE_API_KEY..." -ForegroundColor Cyan
+$secretExists = gcloud secrets describe "google-api-key" --project=$ProjectId 2>$null
+if (-not $secretExists) {
+    Write-Host "    Creating Secret Manager container 'google-api-key'..."
+    gcloud secrets create "google-api-key" --replication-policy="automatic" --project=$ProjectId --quiet | Out-Null
+    Write-Host "    Secret container created successfully."
+} else {
+    Write-Host "    Secret container 'google-api-key' is ready."
+}
+Write-Host "    Injecting GOOGLE_API_KEY version..."
+$ApiKey | gcloud secrets versions add "google-api-key" --data-file=- --project=$ProjectId --quiet | Out-Null
+
+# -----------------------------------------------------------------------------
+# 6. Remote State GCS Bucket Bootstrap
 # -----------------------------------------------------------------------------
 $stateBucket = "${ProjectId}-tfstate"
-Write-Host "`n==> [5/8] Ensuring remote Terraform state bucket gs://${stateBucket} exists..." -ForegroundColor Cyan
+Write-Host "`n==> [6/9] Ensuring remote Terraform state bucket gs://${stateBucket} exists..." -ForegroundColor Cyan
 
 $bucketExists = gcloud storage buckets describe "gs://${stateBucket}" 2>$null
 if (-not $bucketExists) {
@@ -100,9 +119,9 @@ if (-not $bucketExists) {
 }
 
 # -----------------------------------------------------------------------------
-# 6. Build and Push Container Image via Cloud Build
+# 7. Build and Push Container Image via Cloud Build
 # -----------------------------------------------------------------------------
-Write-Host "`n==> [6/8] Building and pushing container image via Cloud Build..." -ForegroundColor Cyan
+Write-Host "`n==> [7/9] Building and pushing container image via Cloud Build..." -ForegroundColor Cyan
 
 $commitSha = git rev-parse --short HEAD 2>$null
 if (-not $commitSha) { $commitSha = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() }
@@ -118,9 +137,9 @@ try {
 }
 
 # -----------------------------------------------------------------------------
-# 7. Full Terraform Apply & Imperative Secret Value Injection
+# 8. Full Terraform Apply
 # -----------------------------------------------------------------------------
-Write-Host "`n==> [7/8] Applying Terraform infrastructure (Cloud Run Service + Worker Job)..." -ForegroundColor Cyan
+Write-Host "`n==> [8/9] Applying Terraform infrastructure (Cloud Run Service + Worker Job)..." -ForegroundColor Cyan
 
 Push-Location $tfDir
 try {
@@ -139,12 +158,6 @@ try {
         -input=false
     if ($LASTEXITCODE -ne 0) { throw "Full terraform apply failed." }
 
-    # INLINE SECURITY ARCHITECTURE NOTE:
-    # Secret container is declared in Terraform; secret payload is injected imperatively
-    # so raw API keys never enter tfstate or disk files.
-    Write-Host "    Injecting GOOGLE_API_KEY into Secret Manager..."
-    $ApiKey | gcloud secrets versions add "google-api-key" --data-file=- --quiet | Out-Null
-
     $serviceUrl = (terraform output -raw service_url).Trim()
     $serviceAccount = (terraform output -raw service_account_email).Trim()
 } finally {
@@ -152,9 +165,9 @@ try {
 }
 
 # -----------------------------------------------------------------------------
-# 8. Live Health Check Verification
+# 9. Live Health Check Verification
 # -----------------------------------------------------------------------------
-Write-Host "`n==> [8/8] Verifying live Cloud Run deployment health..." -ForegroundColor Cyan
+Write-Host "`n==> [9/9] Verifying live Cloud Run deployment health..." -ForegroundColor Cyan
 Write-Host "    Testing endpoint: ${serviceUrl}/health/live"
 
 $healthOk = $false

@@ -24,6 +24,6 @@ output "artifact_registry_repo" {
 }
 
 output "secret_id" {
-  value       = google_secret_manager_secret.api_key.secret_id
+  value       = data.google_secret_manager_secret.api_key.secret_id
   description = "The ID of the Secret Manager secret container."
 }
