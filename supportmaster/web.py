@@ -2150,7 +2150,7 @@ def run_resumed_worker_sync(run_id: str, model_name: str | None) -> None:
     asyncio.run(run_resumed_worker(run_id, model_name))
 
 
-def run_server(host: str = "127.0.0.1", port: int = 8000) -> None:
+def run_server(host: str = "0.0.0.0", port: int = 8001) -> None:
     import signal
     import sys
 
@@ -2177,8 +2177,10 @@ def run_server(host: str = "127.0.0.1", port: int = 8000) -> None:
 
 
 if __name__ == "__main__":
+    default_host = os.environ.get("HOST", "0.0.0.0")
+    default_port = int(os.environ.get("PORT", "8001"))
     parser = argparse.ArgumentParser(description="SupportMaster model-picker UI")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8001)
+    parser.add_argument("--host", default=default_host)
+    parser.add_argument("--port", type=int, default=default_port)
     args = parser.parse_args()
     run_server(args.host, args.port)
