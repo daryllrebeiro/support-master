@@ -1,87 +1,97 @@
-# SupportMaster on Google Cloud
+# SupportMaster: Terraform-Provisioned Google Cloud Deployment
 
-This guide deploys SupportMaster to **Cloud Run** with the Gemini API key in
-**Secret Manager** — satisfying the hackathon requirement for "at least one
-Google Cloud service" and giving you a public hosted URL plus an easy video
-proof shot.
+SupportMaster features an Infrastructure-as-Code (IaC) deployment layer combining **Terraform** for declarative cloud resources and an **environment-variable-driven wrapper script** for zero-leak secret injection and live verification.
 
-## Services used
+---
 
-| Google Cloud service | Role in SupportMaster |
-|---|---|
-| Cloud Run | Hosts the web UI, model picker, workspace, and API |
-| Secret Manager | Stores `GOOGLE_API_KEY` (never baked into the image) |
-| Cloud Build | Builds the container image from the repo |
-| Artifact Registry | Stores the built image |
+## 1. Architecture Overview
 
-## Prerequisites
+```
+ [ Local Dev / CI ] ---> Env Vars (GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_REGION, GOOGLE_API_KEY)
+                               |
+               +---------------+---------------+
+               |                               |
+       [ 1. Terraform ]                [ 2. Cloud Build ]
+  - Required APIs Enablement      - Builds container from repo
+  - Artifact Registry Repo        - Tags with commit SHA
+  - Least-Privilege IAM Account   - Pushes to Artifact Registry
+  - Secret Manager Container                   |
+  - Cloud Run Service (Web) <------------------+
+  - Cloud Run Job (Worker)
+  - Remote GCS State Storage
+               |
+  [ 3. Imperative Secret Injection ]
+  - Injects GOOGLE_API_KEY directly via gcloud
+  - Secret NEVER written to disk or tfstate
+               |
+  [ 4. Automated Health Verification ]
+  - /health/live & /health/ready probes
+```
 
-1. A GCP project with billing enabled.
-2. `gcloud` CLI installed and authenticated:
-   ```powershell
+### Infrastructure Provisioned (`infra/terraform/`)
+| Resource | Terraform Resource Name | Purpose |
+| :--- | :--- | :--- |
+| **API Enablement** | `google_project_service.apis` | Enables `run`, `cloudbuild`, `artifactregistry`, `secretmanager`, `cloudtrace` |
+| **Artifact Registry** | `google_artifact_registry_repository.app_repo` | Stores immutable Docker images tagged with git commit SHA |
+| **Runtime Service Account** | `google_service_account.runtime` | `supportmaster-runner` (least-privilege runtime identity) |
+| **IAM Secret Binding** | `google_secret_manager_secret_iam_member` | Grants `roles/secretmanager.secretAccessor` on the specific API key secret |
+| **Secret Container** | `google_secret_manager_secret.api_key` | Container for `google-api-key` (values injected outside Terraform) |
+| **Cloud Run Web Service** | `google_cloud_run_v2_service.web` | Hosts UI, workspace, SSE streams, model picker, and REST APIs on port 8001 |
+| **Cloud Run Worker Job** | `google_cloud_run_v2_job.worker` | Executes asynchronous, durable multi-agent workflow tasks |
+| **State Storage** | `backend "gcs"` | Remote state in `gs://${PROJECT_ID}-tfstate` |
+
+---
+
+## 2. Prerequisites (One-Time Setup)
+
+1. A Google Cloud Project with billing enabled.
+2. `gcloud` CLI installed and authenticated with Application Default Credentials:
+   ```bash
    gcloud auth login
-   gcloud config set project <your-project-id>
+   gcloud auth application-default login
    ```
-3. A Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey)
-   exported in your shell: `$env:GOOGLE_API_KEY = "..."`
+3. `terraform` CLI (>= 1.5.0) installed.
 
-## One-command deploy
+---
 
-```powershell
-.\scripts\deploy-cloudrun.ps1 -ProjectId <your-project-id> -Region us-central1
+## 3. Environment-Driven Deployment (One Command)
+
+### Option A: Shell Exports (Bash / Zsh / Cloud Shell)
+```bash
+export GOOGLE_CLOUD_PROJECT="my-project-id"
+export GOOGLE_CLOUD_REGION="us-central1"
+export GOOGLE_API_KEY="AIzaSy..."
+
+./scripts/deploy.sh
 ```
 
-The script enables APIs, creates/updates the secret, builds via Cloud Build,
-grants the runtime service account secret access, deploys to Cloud Run, and
-prints the hosted URL.
-
-## Manual deploy (equivalent steps)
-
+### Option B: PowerShell (Windows)
 ```powershell
-# 1. Enable APIs
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com `
-    secretmanager.googleapis.com artifactregistry.googleapis.com
+$env:GOOGLE_CLOUD_PROJECT = "my-project-id"
+$env:GOOGLE_CLOUD_REGION  = "us-central1"
+$env:GOOGLE_API_KEY       = "AIzaSy..."
 
-# 2. Store the API key in Secret Manager
-"GOOGLE_API_KEY" | gcloud secrets create google-api-key --data-file=- --replication-policy=automatic
-
-# 3. Build the image
-gcloud builds submit --tag us-central1-docker.pkg.dev/<project>/cloud-run-source-deploy/supportmaster:latest
-
-# 4. Deploy
-gcloud run deploy supportmaster `
-    --image us-central1-docker.pkg.dev/<project>/cloud-run-source-deploy/supportmaster:latest `
-    --region us-central1 `
-    --allow-unauthenticated `
-    --set-secrets GOOGLE_API_KEY=google-api-key:latest `
-    --set-env-vars SUPPORTMASTER_AUTH_MODE=OPTIONAL,SUPPORTMASTER_MODEL=gemini-3.5-flash,PORT=8001 `
-    --port 8001
+.\scripts\deploy.ps1
 ```
 
-## After deployment — capture these for the submission form
+---
 
-1. **Hosted project URL**: printed by the deploy script, or run
-   `gcloud run services describe supportmaster --region us-central1 --format="value(status.url)"`.
-   Paste it into the Devpost form. The demo auth mode is OPTIONAL; if you
-   switch to `REQUIRED`, put the demo credentials in the testing instructions.
-2. **Video proof shot (~5 seconds)**: show either
-   - `gcloud run services list`, or
-   - the Cloud Console → Cloud Run → supportmaster page,
-   
-   while the app is live. This is the required "proof your backend runs on
-   Google Cloud".
-3. **Smoke test**: open `<url>/health/live` and `<url>/workspace` to confirm.
+## 4. What the Deployment Script Executes
 
-## Security notes for judges
+1. **Environment Validation**: Confirms `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_REGION`, and `GOOGLE_API_KEY` are populated.
+2. **Pre-flight Checks**: Verifies `gcloud`, `terraform`, active ADC, and billing.
+3. **State Bucket Bootstrap**: Ensures `gs://${PROJECT_ID}-tfstate` exists with uniform bucket-level access.
+4. **Targeted Foundation Apply**: Runs `terraform apply` targeting APIs and Artifact Registry so the Docker repository exists prior to image push.
+5. **Container Build**: Cloud Build compiles the Docker image and tags it with the current git commit SHA (`${REGION}-docker.pkg.dev/${PROJECT}/supportmaster/supportmaster:${COMMIT_SHA}`).
+6. **Full Infrastructure Apply**: Deploys the Cloud Run Service and Cloud Run Job with auto-scaling bounds (0 to 2 instances) and CPU/Memory limits (1 CPU, 1Gi RAM).
+7. **Imperative Secret Value Injection**: Injects `GOOGLE_API_KEY` directly from the environment into Secret Manager via `gcloud secrets versions add` — ensuring the raw key never enters `.tf` files or Terraform state.
+8. **Live Health Verification**: Pings `${SERVICE_URL}/health/live` and verifies HTTP 200 before exiting.
 
-- The Gemini key lives only in Secret Manager, mounted at request time by the
-  Cloud Run runtime service account (`secretAccessor` role).
-- The container runs as non-root user 8888.
-- `SUPPORTMASTER_AUTH_MODE=OPTIONAL` is set for judge convenience; production
-  deployments should use `REQUIRED` with scoped API keys (see README Phase 11).
-- All mutations remain behind workflow authorization gates regardless of auth mode.
+---
 
-## Cost control
+## 5. Security & Isolation Guarantees
 
-The deployment uses `--min-instances 0 --max-instances 2` so idle cost is zero
-and worst-case spend stays bounded during judging week.
+- **Zero Secret Ingestion in State**: Terraform manages the secret *resource container*, but the secret *payload* is injected out-of-band via gcloud. No API key ever appears in `terraform.tfstate` or plan outputs.
+- **Least-Privilege Identity**: The runtime account `supportmaster-runner` only possesses `roles/secretmanager.secretAccessor` on the `google-api-key` secret and `roles/cloudtrace.agent` (if tracing is enabled). No Owner/Editor roles are granted.
+- **Immutable Container Tagging**: Deployments use the git commit SHA rather than `:latest`, ensuring full reproducibility and audit traceability.
+- **Non-Root Execution**: Container runs under unprivileged UID `8888` (`appuser`).

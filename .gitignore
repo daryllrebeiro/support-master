@@ -18,3 +18,12 @@ audit.json
 
 # Golden-path demo workspace
 .demo-workspace/
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.auto.tfvars
+.env.deploy
