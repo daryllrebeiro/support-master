@@ -89,6 +89,8 @@ gcloud services enable \
   artifactregistry.googleapis.com \
   secretmanager.googleapis.com \
   cloudtrace.googleapis.com \
+  cloudresourcemanager.googleapis.com \
+  iam.googleapis.com \
   --quiet
 
 # -----------------------------------------------------------------------------

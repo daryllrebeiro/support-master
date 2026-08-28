@@ -13,6 +13,8 @@ locals {
     "artifactregistry.googleapis.com",
     "secretmanager.googleapis.com",
     "cloudtrace.googleapis.com",
+    "cloudresourcemanager.googleapis.com",
+    "iam.googleapis.com",
   ]
 }
 
@@ -68,6 +70,8 @@ resource "google_project_iam_member" "cloud_trace_agent" {
   project = var.project_id
   role    = "roles/cloudtrace.agent"
   member  = "serviceAccount:${google_service_account.runtime.email}"
+
+  depends_on = [google_project_service.apis]
 }
 
 # -----------------------------------------------------------------------------
@@ -99,11 +103,6 @@ resource "google_cloud_run_v2_service" "web" {
           cpu    = "1"
           memory = "1Gi"
         }
-      }
-
-      env {
-        name  = "PORT"
-        value = "8001"
       }
 
       env {
