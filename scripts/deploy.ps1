@@ -55,10 +55,23 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $tfDir = Join-Path $repoRoot "infra\terraform"
 
 # -----------------------------------------------------------------------------
-# 3. Remote State GCS Bucket Bootstrap
+# 3. Google Cloud API Enablement
+# -----------------------------------------------------------------------------
+Write-Host "`n==> [3/8] Enabling required Google Cloud APIs..." -ForegroundColor Cyan
+gcloud services enable `
+    run.googleapis.com `
+    cloudbuild.googleapis.com `
+    artifactregistry.googleapis.com `
+    secretmanager.googleapis.com `
+    cloudtrace.googleapis.com `
+    --quiet
+if ($LASTEXITCODE -ne 0) { throw "gcloud services enable failed." }
+
+# -----------------------------------------------------------------------------
+# 4. Remote State GCS Bucket Bootstrap
 # -----------------------------------------------------------------------------
 $stateBucket = "${ProjectId}-tfstate"
-Write-Host "`n==> [3/7] Ensuring remote Terraform state bucket gs://${stateBucket} exists..." -ForegroundColor Cyan
+Write-Host "`n==> [4/8] Ensuring remote Terraform state bucket gs://${stateBucket} exists..." -ForegroundColor Cyan
 
 $bucketExists = gcloud storage buckets describe "gs://${stateBucket}" 2>$null
 if (-not $bucketExists) {
@@ -70,9 +83,9 @@ if (-not $bucketExists) {
 }
 
 # -----------------------------------------------------------------------------
-# 4. Terraform Initialization & Targeted Pre-Apply
+# 5. Terraform Initialization & Targeted Pre-Apply
 # -----------------------------------------------------------------------------
-Write-Host "`n==> [4/7] Initializing Terraform backend and enabling foundation services..." -ForegroundColor Cyan
+Write-Host "`n==> [5/8] Initializing Terraform backend and enabling foundation services..." -ForegroundColor Cyan
 
 Push-Location $tfDir
 try {
@@ -98,9 +111,9 @@ try {
 }
 
 # -----------------------------------------------------------------------------
-# 5. Build and Push Container Image via Cloud Build
+# 6. Build and Push Container Image via Cloud Build
 # -----------------------------------------------------------------------------
-Write-Host "`n==> [5/7] Building and pushing container image via Cloud Build..." -ForegroundColor Cyan
+Write-Host "`n==> [6/8] Building and pushing container image via Cloud Build..." -ForegroundColor Cyan
 
 $commitSha = git rev-parse --short HEAD 2>$null
 if (-not $commitSha) { $commitSha = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() }
@@ -116,9 +129,9 @@ try {
 }
 
 # -----------------------------------------------------------------------------
-# 6. Full Terraform Apply & Imperative Secret Value Injection
+# 7. Full Terraform Apply & Imperative Secret Value Injection
 # -----------------------------------------------------------------------------
-Write-Host "`n==> [6/7] Applying full Terraform infrastructure (Cloud Run Service + Worker Job)..." -ForegroundColor Cyan
+Write-Host "`n==> [7/8] Applying full Terraform infrastructure (Cloud Run Service + Worker Job)..." -ForegroundColor Cyan
 
 Push-Location $tfDir
 try {
@@ -143,9 +156,9 @@ try {
 }
 
 # -----------------------------------------------------------------------------
-# 7. Live Health Check Verification
+# 8. Live Health Check Verification
 # -----------------------------------------------------------------------------
-Write-Host "`n==> [7/7] Verifying live Cloud Run deployment health..." -ForegroundColor Cyan
+Write-Host "`n==> [8/8] Verifying live Cloud Run deployment health..." -ForegroundColor Cyan
 Write-Host "    Testing endpoint: ${serviceUrl}/health/live"
 
 $healthOk = $false

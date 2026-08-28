@@ -69,10 +69,22 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 TF_DIR="${REPO_ROOT}/infra/terraform"
 
 # -----------------------------------------------------------------------------
-# 3. Remote State GCS Bucket Bootstrap
+# 3. Google Cloud API Enablement
+# -----------------------------------------------------------------------------
+echo "==> [3/8] Enabling required Google Cloud APIs..."
+gcloud services enable \
+  run.googleapis.com \
+  cloudbuild.googleapis.com \
+  artifactregistry.googleapis.com \
+  secretmanager.googleapis.com \
+  cloudtrace.googleapis.com \
+  --quiet
+
+# -----------------------------------------------------------------------------
+# 4. Remote State GCS Bucket Bootstrap
 # -----------------------------------------------------------------------------
 STATE_BUCKET="${GOOGLE_CLOUD_PROJECT}-tfstate"
-echo "==> [3/7] Ensuring remote Terraform state bucket gs://${STATE_BUCKET} exists..."
+echo "==> [4/8] Ensuring remote Terraform state bucket gs://${STATE_BUCKET} exists..."
 
 if ! gcloud storage buckets describe "gs://${STATE_BUCKET}" &>/dev/null && ! gsutil ls "gs://${STATE_BUCKET}" &>/dev/null; then
   echo "    Creating GCS bucket gs://${STATE_BUCKET} in ${GOOGLE_CLOUD_REGION}..."
@@ -87,9 +99,9 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 4. Terraform Initialization & Targeted Pre-Apply
+# 5. Terraform Initialization & Targeted Pre-Apply
 # -----------------------------------------------------------------------------
-echo "==> [4/7] Initializing Terraform backend and enabling foundation services..."
+echo "==> [5/8] Initializing Terraform backend and enabling foundation services..."
 
 cd "${TF_DIR}"
 terraform init \
@@ -110,9 +122,9 @@ terraform apply \
   -input=false
 
 # -----------------------------------------------------------------------------
-# 5. Build and Push Container Image via Cloud Build
+# 6. Build and Push Container Image via Cloud Build
 # -----------------------------------------------------------------------------
-echo "==> [5/7] Building and pushing container image via Cloud Build..."
+echo "==> [6/8] Building and pushing container image via Cloud Build..."
 
 cd "${REPO_ROOT}"
 COMMIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || date +%s)"
@@ -122,9 +134,9 @@ echo "    Submitting build for tag: ${IMAGE_TAG}..."
 gcloud builds submit --tag "${IMAGE_TAG}" --quiet "${REPO_ROOT}"
 
 # -----------------------------------------------------------------------------
-# 6. Full Terraform Apply & Imperative Secret Value Injection
+# 7. Full Terraform Apply & Imperative Secret Value Injection
 # -----------------------------------------------------------------------------
-echo "==> [6/7] Applying full Terraform infrastructure (Cloud Run Service + Worker Job)..."
+echo "==> [7/8] Applying full Terraform infrastructure (Cloud Run Service + Worker Job)..."
 
 cd "${TF_DIR}"
 terraform apply \
@@ -144,9 +156,9 @@ echo "    Injecting GOOGLE_API_KEY into Secret Manager..."
 printf "%s" "${GOOGLE_API_KEY}" | gcloud secrets versions add "google-api-key" --data-file=- --quiet
 
 # -----------------------------------------------------------------------------
-# 7. Live Health Check Verification
+# 8. Live Health Check Verification
 # -----------------------------------------------------------------------------
-echo "==> [7/7] Verifying live Cloud Run deployment health..."
+echo "==> [8/8] Verifying live Cloud Run deployment health..."
 
 SERVICE_URL="$(terraform output -raw service_url)"
 SERVICE_ACCOUNT="$(terraform output -raw service_account_email)"
