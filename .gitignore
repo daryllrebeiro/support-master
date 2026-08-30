@@ -30,3 +30,7 @@ audit.json
 *.env.ps1
 scripts/local.env.ps1
 local.env.ps1
+
+# Deployment history and benchmarks
+deploy-history/
+.deploy-history/
