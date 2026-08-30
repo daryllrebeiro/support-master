@@ -120,7 +120,7 @@ def render_page(
     status: str | None = None,
     result: str | None = None,
 ) -> str:
-    """Render the model picker with premium dark glass aesthetics and template quick-loaders."""
+    """Render the dual-view control panel with Workflow Launcher and ADK Agent Chat & Live Reasoning."""
     escaped_jira = escape(MOCK_JIRA_ISSUE).replace('`', '\\`').replace('\n', '\\n')
     options = "\n".join(
         (
@@ -135,7 +135,7 @@ def render_page(
         f'<div class="status-card" role="status"><div class="status-indicator"></div><p class="status-text">{escape(status)}</p></div>' if status else ""
     )
     result_html = (
-        f'<section class="results-card"><h2>Workflow events</h2><pre class="events-log">{escape(result)}</pre></section>'
+        f'<section class="results-card"><h2>Workflow Execution Events</h2><pre class="events-log">{escape(result)}</pre></section>'
         if result
         else ""
     )
@@ -144,72 +144,159 @@ def render_page(
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>SupportMaster Control Panel</title>
+    <title>SupportMaster — Autonomous Support Engineering</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
       :root {{
         --bg-color: #030712;
-        --card-bg: rgba(17, 24, 39, 0.7);
-        --border-color: rgba(55, 65, 81, 0.5);
+        --card-bg: rgba(17, 24, 39, 0.75);
+        --card-border: rgba(55, 65, 81, 0.5);
         --accent-blue: #3b82f6;
-        --accent-glow: rgba(59, 130, 246, 0.15);
+        --accent-glow: rgba(59, 130, 246, 0.2);
+        --accent-cyan: #06b6d4;
+        --accent-purple: #8b5cf6;
         --text-primary: #f3f4f6;
         --text-secondary: #9ca3af;
+        --text-muted: #6b7280;
+        --green-bright: #10b981;
+        --amber-bright: #f59e0b;
+      }}
+      * {{
+        box-sizing: border-box;
       }}
       body {{
         margin: 0;
         min-height: 100vh;
-        display: grid;
-        place-items: center;
-        background: radial-gradient(circle at 10% 20%, rgba(17, 34, 64, 0.8) 0%, rgba(3, 7, 18, 1) 90%);
+        background: radial-gradient(circle at 15% 15%, rgba(17, 34, 64, 0.85) 0%, rgba(3, 7, 18, 1) 90%);
         color: var(--text-primary);
         font-family: 'Inter', system-ui, sans-serif;
+        padding-bottom: 60px;
       }}
-      main {{
-        width: min(640px, calc(100% - 40px));
-        margin: 40px 0;
-        padding: 40px;
-        border: 1px solid var(--border-color);
-        border-radius: 24px;
-        background: var(--card-bg);
+      .top-navbar {{
+        width: 100%;
+        padding: 16px 32px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid var(--card-border);
+        background: rgba(17, 24, 39, 0.8);
         backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 40px var(--accent-glow);
-        transition: transform 0.3s ease;
+        position: sticky;
+        top: 0;
+        z-index: 100;
+      }}
+      .brand {{
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        text-decoration: none;
+      }}
+      .brand-badge {{
+        background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+        color: white;
+        padding: 4px 10px;
+        border-radius: 8px;
+        font-family: 'Outfit', sans-serif;
+        font-weight: 800;
+        font-size: 0.85rem;
+        letter-spacing: 0.05em;
+      }}
+      .brand-name {{
+        font-family: 'Outfit', sans-serif;
+        font-weight: 800;
+        font-size: 1.3rem;
+        background: linear-gradient(135deg, #ffffff 40%, #93c5fd 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }}
+      .nav-tabs {{
+        display: flex;
+        background: rgba(3, 7, 18, 0.6);
+        padding: 4px;
+        border-radius: 12px;
+        border: 1px solid var(--card-border);
+        gap: 4px;
+      }}
+      .tab-btn {{
+        background: transparent;
+        border: none;
+        color: var(--text-secondary);
+        padding: 8px 18px;
+        border-radius: 8px;
+        font-family: 'Outfit', sans-serif;
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }}
+      .tab-btn:hover {{
+        color: var(--text-primary);
+        background: rgba(55, 65, 81, 0.4);
+      }}
+      .tab-btn.active {{
+        background: var(--accent-blue);
+        color: #ffffff;
+        box-shadow: 0 2px 10px rgba(59, 130, 246, 0.4);
+      }}
+      .container {{
+        max-width: 1000px;
+        margin: 32px auto;
+        padding: 0 20px;
+      }}
+      .view-panel {{
+        display: none;
+      }}
+      .view-panel.active {{
+        display: block;
+        animation: fadeIn 0.3s ease;
+      }}
+      @keyframes fadeIn {{
+        from {{ opacity: 0; transform: translateY(8px); }}
+        to {{ opacity: 1; transform: translateY(0); }}
+      }}
+      .glass-card {{
+        background: var(--card-bg);
+        border: 1px solid var(--card-border);
+        border-radius: 20px;
+        padding: 32px;
+        backdrop-filter: blur(16px);
+        box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.6), 0 0 30px var(--accent-glow);
       }}
       .eyebrow {{
-        color: var(--accent-blue);
+        color: var(--accent-cyan);
         font-family: 'Outfit', sans-serif;
-        font-size: .85rem;
+        font-size: .8rem;
         font-weight: 700;
         letter-spacing: .15em;
         text-transform: uppercase;
-        margin-bottom: 8px;
-        text-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
+        margin-bottom: 6px;
       }}
       h1 {{
-        margin: 0 0 12px;
+        margin: 0 0 8px;
         font-family: 'Outfit', sans-serif;
-        font-size: 2.5rem;
+        font-size: 2.2rem;
         font-weight: 800;
-        letter-spacing: -0.02em;
-        background: linear-gradient(135deg, #ffffff 30%, #93c5fd 100%);
+        background: linear-gradient(135deg, #ffffff 40%, #93c5fd 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
       }}
       .intro {{
         color: var(--text-secondary);
-        font-size: 1rem;
-        line-height: 1.6;
-        margin-bottom: 32px;
+        font-size: 0.95rem;
+        line-height: 1.5;
+        margin-bottom: 24px;
       }}
       label {{
         display: block;
-        margin: 24px 0 8px;
+        margin: 20px 0 8px;
         font-family: 'Outfit', sans-serif;
-        font-size: 0.95rem;
+        font-size: 0.9rem;
         font-weight: 600;
         color: #e5e7eb;
       }}
@@ -221,9 +308,9 @@ def render_page(
         transition: all 0.2s ease;
       }}
       select {{
-        padding: 14px;
+        padding: 12px 14px;
         background: rgba(17, 24, 39, 0.8);
-        border: 1px solid var(--border-color);
+        border: 1px solid var(--card-border);
         color: var(--text-primary);
         cursor: pointer;
       }}
@@ -234,14 +321,13 @@ def render_page(
       }}
       textarea {{
         width: 100%;
-        min-height: 280px;
-        box-sizing: border-box;
+        min-height: 200px;
         resize: vertical;
         padding: 14px;
         background: rgba(17, 24, 39, 0.8);
-        border: 1px solid var(--border-color);
+        border: 1px solid var(--card-border);
         color: var(--text-primary);
-        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-family: 'JetBrains Mono', monospace;
         font-size: .85rem;
         line-height: 1.5;
       }}
@@ -249,14 +335,14 @@ def render_page(
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
-        margin-top: 10px;
+        margin-top: 8px;
       }}
       .fixture-btn {{
-        background: rgba(31, 41, 55, 0.6);
-        border: 1px solid var(--border-color);
+        background: rgba(31, 41, 55, 0.7);
+        border: 1px solid var(--card-border);
         color: var(--text-secondary);
-        padding: 8px 14px;
-        border-radius: 20px;
+        padding: 6px 12px;
+        border-radius: 16px;
         font-size: 0.8rem;
         font-weight: 550;
         width: auto;
@@ -267,34 +353,30 @@ def render_page(
         color: #ffffff;
         border-color: var(--accent-blue);
         transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
       }}
-      button[type="submit"] {{
-        margin-top: 28px;
-        padding: 16px;
+      button[type="submit"], .action-btn {{
+        margin-top: 24px;
+        padding: 14px 20px;
         border: 0;
+        border-radius: 12px;
         background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
         color: #ffffff;
         font-family: 'Outfit', sans-serif;
         font-weight: 700;
-        font-size: 1.05rem;
+        font-size: 1rem;
         cursor: pointer;
-        box-shadow: 0 4px 20px rgba(37, 99, 235, 0.3);
+        box-shadow: 0 4px 16px rgba(37, 99, 235, 0.3);
       }}
-      button[type="submit"]:hover {{
+      button[type="submit"]:hover, .action-btn:hover {{
         background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
         transform: translateY(-1px);
-        box-shadow: 0 6px 24px rgba(59, 130, 246, 0.4);
-      }}
-      button[type="submit"]:active {{
-        transform: translateY(0);
       }}
       .status-card {{
         display: flex;
         align-items: center;
         gap: 12px;
-        margin-top: 24px;
-        padding: 14px 18px;
+        margin-top: 20px;
+        padding: 12px 16px;
         border-radius: 12px;
         background: rgba(16, 185, 129, 0.1);
         border: 1px solid rgba(16, 185, 129, 0.2);
@@ -305,7 +387,6 @@ def render_page(
         border-radius: 50%;
         background: #10b981;
         box-shadow: 0 0 10px #10b981;
-        animation: pulse 1.5s infinite;
       }}
       .status-text {{
         margin: 0;
@@ -314,97 +395,342 @@ def render_page(
         font-weight: 500;
       }}
       .results-card {{
-        margin-top: 32px;
-      }}
-      .results-card h2 {{
-        font-family: 'Outfit', sans-serif;
-        font-size: 1.2rem;
-        margin-bottom: 12px;
-        color: #e5e7eb;
+        margin-top: 28px;
       }}
       .events-log {{
-        max-height: 500px;
+        max-height: 450px;
         overflow: auto;
         white-space: pre-wrap;
-        padding: 20px;
+        padding: 16px;
         border-radius: 12px;
         background: rgba(3, 7, 18, 0.9);
-        border: 1px solid var(--border-color);
+        border: 1px solid var(--card-border);
         color: #d1d5db;
         font-family: 'JetBrains Mono', monospace;
         font-size: 0.8rem;
         line-height: 1.6;
       }}
-      .note-card {{
-        margin-top: 36px;
-        padding: 16px;
-        border-radius: 12px;
-        background: rgba(31, 41, 55, 0.3);
-        border: 1px solid rgba(75, 85, 99, 0.2);
-      }}
-      .note-card p {{
-        margin: 0;
-        color: var(--text-secondary);
-        font-size: 0.85rem;
-        line-height: 1.5;
-        text-align: center;
-      }}
-      .nav-links {{
+
+      /* =========================================================================
+         ADK Chat & Live Multi-Agent Reasoning View Styles
+         ========================================================================= */
+      .chat-window {{
         display: flex;
+        flex-direction: column;
+        height: 75vh;
+        max-height: 800px;
+      }}
+      .chat-messages {{
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }}
+      .msg-row {{
+        display: flex;
+        gap: 14px;
+        max-width: 88%;
+      }}
+      .msg-row.user {{
+        align-self: flex-end;
+        flex-direction: row-reverse;
+      }}
+      .msg-row.agent {{
+        align-self: flex-start;
+      }}
+      .avatar {{
+        width: 38px;
+        height: 38px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
         justify-content: center;
-        gap: 16px;
-        margin-top: 24px;
+        font-weight: 700;
         font-size: 0.9rem;
+        flex-shrink: 0;
       }}
-      .nav-links a {{
-        color: var(--accent-blue);
-        text-decoration: none;
+      .avatar.user-av {{
+        background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+        color: white;
+      }}
+      .avatar.agent-av {{
+        background: linear-gradient(135deg, #8b5cf6, #06b6d4);
+        color: white;
+      }}
+      .msg-bubble {{
+        padding: 16px 20px;
+        border-radius: 16px;
+        font-size: 0.92rem;
+        line-height: 1.6;
+      }}
+      .msg-row.user .msg-bubble {{
+        background: linear-gradient(135deg, #1d4ed8, #2563eb);
+        color: #ffffff;
+        border-bottom-right-radius: 4px;
+      }}
+      .msg-row.agent .msg-bubble {{
+        background: rgba(17, 24, 39, 0.9);
+        border: 1px solid var(--card-border);
+        color: var(--text-primary);
+        border-bottom-left-radius: 4px;
+      }}
+      .agent-header {{
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+        font-family: 'Outfit', sans-serif;
+      }}
+      .agent-name {{
+        font-weight: 700;
+        font-size: 0.95rem;
+        color: #93c5fd;
+      }}
+      .model-tag {{
+        background: rgba(59, 130, 246, 0.15);
+        color: #60a5fa;
+        border: 1px solid rgba(59, 130, 246, 0.3);
+        padding: 2px 8px;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }}
+      .stage-flow {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 12px 0;
+      }}
+      .stage-pill {{
+        font-size: 0.72rem;
+        font-weight: 700;
+        padding: 3px 8px;
+        border-radius: 6px;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        background: rgba(31, 41, 55, 0.8);
+        border: 1px solid var(--card-border);
+        color: var(--text-muted);
+      }}
+      .stage-pill.active {{
+        background: rgba(16, 185, 129, 0.2);
+        color: #34d399;
+        border-color: rgba(16, 185, 129, 0.4);
+      }}
+      .reasoning-box {{
+        margin: 12px 0;
+        background: rgba(3, 7, 18, 0.6);
+        border: 1px solid rgba(139, 92, 246, 0.3);
+        border-radius: 10px;
+        overflow: hidden;
+      }}
+      .reasoning-box summary {{
+        padding: 10px 14px;
+        font-family: 'Outfit', sans-serif;
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: #c4b5fd;
+        cursor: pointer;
+        background: rgba(139, 92, 246, 0.1);
+        user-select: none;
+      }}
+      .reasoning-content {{
+        padding: 12px 14px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.8rem;
+        color: #d1d5db;
+        max-height: 240px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        line-height: 1.5;
+        border-top: 1px solid rgba(139, 92, 246, 0.2);
+      }}
+      .tool-call {{
+        background: rgba(3, 7, 18, 0.7);
+        border: 1px solid var(--card-border);
+        border-left: 3px solid var(--accent-cyan);
+        padding: 8px 12px;
+        border-radius: 6px;
+        margin: 8px 0;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.78rem;
+      }}
+      .tool-name {{
+        color: var(--accent-cyan);
+        font-weight: 600;
+      }}
+      .chat-footer {{
+        padding: 16px 20px;
+        border-top: 1px solid var(--card-border);
+        background: rgba(17, 24, 39, 0.95);
+      }}
+      .prompt-chips {{
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding-bottom: 10px;
+        margin-bottom: 8px;
+      }}
+      .chip-btn {{
+        background: rgba(31, 41, 55, 0.7);
+        border: 1px solid var(--card-border);
+        color: var(--text-secondary);
+        padding: 5px 12px;
+        border-radius: 14px;
+        font-size: 0.75rem;
         font-weight: 550;
+        white-space: nowrap;
+        cursor: pointer;
+        width: auto;
       }}
-      .nav-links a:hover {{
-        text-decoration: underline;
+      .chip-btn:hover {{
+        background: var(--accent-blue);
+        color: white;
+        border-color: var(--accent-blue);
       }}
-      @keyframes pulse {{
-        0% {{ transform: scale(0.95); opacity: 0.5; }}
-        50% {{ transform: scale(1.1); opacity: 1; }}
-        100% {{ transform: scale(0.95); opacity: 0.5; }}
+      .chat-input-bar {{
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }}
+      .chat-input-bar textarea {{
+        min-height: 48px;
+        max-height: 120px;
+        padding: 12px;
+        resize: none;
+        flex: 1;
+      }}
+      .chat-send-btn {{
+        width: auto;
+        padding: 12px 24px;
+        margin-top: 0;
+        background: linear-gradient(135deg, #3b82f6, #2563eb);
+        font-family: 'Outfit', sans-serif;
+        font-weight: 700;
+        border-radius: 12px;
+      }}
+      .typing-indicator {{
+        display: flex;
+        gap: 4px;
+        padding: 8px 12px;
+        background: rgba(31, 41, 55, 0.6);
+        border-radius: 12px;
+        width: fit-content;
+      }}
+      .typing-dot {{
+        width: 6px;
+        height: 6px;
+        background: var(--accent-blue);
+        border-radius: 50%;
+        animation: typing 1.4s infinite ease-in-out both;
+      }}
+      .typing-dot:nth-child(1) {{ animation-delay: -0.32s; }}
+      .typing-dot:nth-child(2) {{ animation-delay: -0.16s; }}
+      @keyframes typing {{
+        0%, 80%, 100% {{ transform: scale(0); opacity: 0.3; }}
+        40% {{ transform: scale(1); opacity: 1; }}
       }}
     </style>
   </head>
   <body>
-    <main>
-      <p class="eyebrow">Autonomous Support Engineering</p>
-      <h1>SupportMaster</h1>
-      <p class="intro">Configure execution environment and trigger the ADK-gated agent workflow.</p>
-      
-      <form action="/" method="post">
-        <label for="model">Gemini Model</label>
-        <select id="model" name="model">{options}</select>
-        
-        <label>Load Scenario Template</label>
-        <div class="fixture-templates" id="templates-list">
-          <button type="button" class="fixture-btn" onclick="loadDefault()">Acme Invoice Failure</button>
+    <!-- Top Navigation Header with View Switcher -->
+    <header class="top-navbar">
+      <a href="/" class="brand">
+        <span class="brand-badge">ADK 2.7</span>
+        <span class="brand-name">SupportMaster</span>
+      </a>
+      <nav class="nav-tabs">
+        <button type="button" class="tab-btn active" id="tab-btn-launcher" onclick="switchView('launcher')">🚀 Workflow Launcher</button>
+        <button type="button" class="tab-btn" id="tab-btn-chat" onclick="switchView('chat')">💬 ADK Live Chat & Reasoning</button>
+        <a href="/workspace" class="tab-btn">🗂️ Operator Workspace</a>
+      </nav>
+      <div style="display: flex; gap: 12px; font-size: 0.85rem;">
+        <a href="/health/live" target="_blank" style="color: #34d399; text-decoration: none; font-weight: 600;">● Live</a>
+        <a href="/health/ready" target="_blank" style="color: #60a5fa; text-decoration: none; font-weight: 600;">● Ready</a>
+      </div>
+    </header>
+
+    <div class="container">
+      <!-- VIEW 1: Standard Workflow Launcher & Form -->
+      <section id="view-launcher" class="view-panel active">
+        <div class="glass-card">
+          <p class="eyebrow">Autonomous Support Engineering</p>
+          <h1>Support Case Launcher</h1>
+          <p class="intro">Configure execution environment and trigger the ADK-gated agent workflow.</p>
+          
+          <form action="/" method="post" id="launcher-form">
+            <label for="model">Gemini Reasoning Model</label>
+            <select id="model" name="model">{options}</select>
+            
+            <label>Load Scenario Template</label>
+            <div class="fixture-templates" id="templates-list">
+              <button type="button" class="fixture-btn" onclick="loadDefault()">Acme Invoice Failure (SUP-4821)</button>
+            </div>
+
+            <label for="issue">Support Ticket Description</label>
+            <textarea id="issue" name="issue" required>{escape(issue)}</textarea>
+            
+            <button type="submit">Run SupportMaster Workflow</button>
+          </form>
+          
+          {status_html}
+          {result_html}
         </div>
+      </section>
 
-        <label for="issue">Support Ticket Description</label>
-        <textarea id="issue" name="issue" required>{escape(issue)}</textarea>
-        
-        <button type="submit">Run SupportMaster</button>
-      </form>
-      
-      {status_html}
-      {result_html}
-      
-      <div class="nav-links">
-        <a href="/workspace">Operator Case Workspace</a>
-        <a href="/health/live" target="_blank">Liveness Status</a>
-        <a href="/health/ready" target="_blank">Readiness Status</a>
-      </div>
+      <!-- VIEW 2: ADK Agent Live Chat & Step-by-Step Reasoning Trace -->
+      <section id="view-chat" class="view-panel">
+        <div class="glass-card chat-window" style="padding: 0; overflow: hidden;">
+          <div style="padding: 16px 24px; border-bottom: 1px solid var(--card-border); display: flex; justify-content: space-between; align-items: center; background: rgba(17, 24, 39, 0.9);">
+            <div>
+              <h2 style="margin: 0; font-family: 'Outfit', sans-serif; font-size: 1.15rem; color: #f3f4f6;">ADK Multi-Agent Reasoning Chat</h2>
+              <p style="margin: 2px 0 0; font-size: 0.8rem; color: var(--text-secondary);">Interactive conversation with live stage inspection and tool call receipts</p>
+            </div>
+            <div style="width: 220px;">
+              <select id="chat-model-select" style="padding: 8px 12px; font-size: 0.85rem;">{options}</select>
+            </div>
+          </div>
 
-      <div class="note-card">
-        <p>The workflow executes durably using isolated SQLite workspaces. All mutations remain subject to authorization and verification gates.</p>
-      </div>
-    </main>
+          <div class="chat-messages" id="chat-messages">
+            <!-- Welcome message -->
+            <div class="msg-row agent">
+              <div class="avatar agent-av">SM</div>
+              <div class="msg-bubble">
+                <div class="agent-header">
+                  <span class="agent-name">SupportMaster</span>
+                  <span class="model-tag">Google ADK Multi-Agent</span>
+                </div>
+                <p style="margin: 0 0 8px;">Hello Operator! I am <strong>SupportMaster</strong>, your autonomous L3 support engineering agent powered by Google ADK and Gemini.</p>
+                <p style="margin: 0 0 8px;">I can analyze Jira/Zendesk incidents, run web & workspace grounding, check duplicate ticket graphs, generate self-healing code diffs, and execute verified test suites behind non-configurable safety gates.</p>
+                <div class="stage-flow">
+                  <span class="stage-pill active">1. Intake</span>
+                  <span class="stage-pill">2. Investigation</span>
+                  <span class="stage-pill">3. Duplicate Gates</span>
+                  <span class="stage-pill">4. Remediation</span>
+                  <span class="stage-pill">5. Verification</span>
+                  <span class="stage-pill">6. Publish</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="chat-footer">
+            <div class="prompt-chips">
+              <span style="font-size: 0.75rem; color: var(--text-muted); align-self: center;">Quick Prompts:</span>
+              <button type="button" class="chip-btn" onclick="sendPrompt('Diagnose Acme SSO invoice calculation failure (SUP-4821)')">⚡ Acme SSO Invoice Failure</button>
+              <button type="button" class="chip-btn" onclick="sendPrompt('Investigate Redis connection pool exhaustion on payment webhooks')">🔍 Redis Connection Leak</button>
+              <button type="button" class="chip-btn" onclick="sendPrompt('Check duplicate ticket graph and run verification gate')">🛡️ Verify Safety Gates</button>
+            </div>
+            <div class="chat-input-bar">
+              <textarea id="chat-input" placeholder="Type a support incident, question, or diagnostic task..." onkeydown="handleChatKey(event)"></textarea>
+              <button type="button" class="action-btn chat-send-btn" id="chat-send-btn" onclick="submitChatMessage()">Send</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
 
     <script>
       const defaultJira = `{escaped_jira}`;
@@ -412,14 +738,24 @@ def render_page(
         document.getElementById('issue').value = defaultJira;
       }}
 
-      // Fetch additional fixture scenarios from API
+      function switchView(viewName) {{
+        document.querySelectorAll('.view-panel').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+        
+        const panel = document.getElementById('view-' + viewName);
+        const btn = document.getElementById('tab-btn-' + viewName);
+        if (panel) panel.classList.add('active');
+        if (btn) btn.classList.add('active');
+      }}
+
+      // Fetch fixture scenarios for template quick-loader
       fetch('/api/fixtures')
         .then(r => r.json())
         .then(data => {{
           if (data && data.fixtures) {{
             const list = document.getElementById('templates-list');
             data.fixtures.forEach(name => {{
-              if (name === 'saas_authentication') return; // Skip default fixture since it's Acme SSO
+              if (name === 'saas_authentication') return;
               const btn = document.createElement('button');
               btn.type = 'button';
               btn.className = 'fixture-btn';
@@ -429,7 +765,6 @@ def render_page(
                   .then(res => res.json())
                   .then(content => {{
                     if (content) {{
-                      // Format description for the textarea
                       let desc = "Title: " + (content.summary || content.title || "Support Case") + "\\n";
                       desc += "Reporter: " + (content.reporter || "Unknown") + "\\n";
                       desc += "Priority: " + (content.priority || "Medium") + "\\n";
@@ -447,6 +782,139 @@ def render_page(
             }});
           }}
         }}).catch(() => {{}});
+
+      // =======================================================================
+      // ADK Interactive Chat Logic
+      // =======================================================================
+      function handleChatKey(e) {{
+        if (e.key === 'Enter' && !e.shiftKey) {{
+          e.preventDefault();
+          submitChatMessage();
+        }}
+      }}
+
+      function sendPrompt(text) {{
+        document.getElementById('chat-input').value = text;
+        submitChatMessage();
+      }}
+
+      function escapeHtml(text) {{
+        const div = document.createElement('div');
+        div.innerText = text || '';
+        return div.innerHTML;
+      }}
+
+      function submitChatMessage() {{
+        const input = document.getElementById('chat-input');
+        const text = input.value.trim();
+        if (!text) return;
+
+        const modelSelect = document.getElementById('chat-model-select');
+        const selectedModel = modelSelect ? modelSelect.value : 'gemini-3.5-flash';
+        const messagesContainer = document.getElementById('chat-messages');
+
+        // 1. Append User Message
+        const userRow = document.createElement('div');
+        userRow.className = 'msg-row user';
+        userRow.innerHTML = `
+          <div class="avatar user-av">OP</div>
+          <div class="msg-bubble">${{escapeHtml(text)}}</div>
+        `;
+        messagesContainer.appendChild(userRow);
+        input.value = '';
+
+        // 2. Append Typing Indicator
+        const typingRow = document.createElement('div');
+        typingRow.className = 'msg-row agent';
+        typingRow.id = 'active-typing';
+        typingRow.innerHTML = `
+          <div class="avatar agent-av">SM</div>
+          <div class="msg-bubble">
+            <div class="typing-indicator">
+              <div class="typing-dot"></div>
+              <div class="typing-dot"></div>
+              <div class="typing-dot"></div>
+            </div>
+          </div>
+        `;
+        messagesContainer.appendChild(typingRow);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+        // Disable send button while processing
+        const sendBtn = document.getElementById('chat-send-btn');
+        if (sendBtn) sendBtn.disabled = true;
+
+        // 3. Post to /api/chat
+        fetch('/api/chat', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          body: JSON.stringify({{ message: text, model: selectedModel }})
+        }})
+        .then(res => res.json())
+        .then(data => {{
+          const typingEl = document.getElementById('active-typing');
+          if (typingEl) typingEl.remove();
+          if (sendBtn) sendBtn.disabled = false;
+
+          const agentRow = document.createElement('div');
+          agentRow.className = 'msg-row agent';
+
+          let responseContent = data.response || data.error || 'Workflow execution completed.';
+          let stagesHtml = `
+            <div class="stage-flow">
+              <span class="stage-pill active">Intake</span>
+              <span class="stage-pill active">Investigation</span>
+              <span class="stage-pill active">Duplicate Gates</span>
+              <span class="stage-pill active">Remediation</span>
+              <span class="stage-pill active">Verification</span>
+              <span class="stage-pill active">Publish</span>
+            </div>
+          `;
+
+          let reasoningAccordion = '';
+          if (data.response) {{
+            reasoningAccordion = `
+              <details class="reasoning-box" open>
+                <summary>🧠 ADK Multi-Agent Execution Trace & Verification</summary>
+                <div class="reasoning-content">${{escapeHtml(data.response)}}</div>
+              </details>
+            `;
+          }}
+
+          agentRow.innerHTML = `
+            <div class="avatar agent-av">SM</div>
+            <div class="msg-bubble" style="width: 100%;">
+              <div class="agent-header">
+                <span class="agent-name">SupportMaster</span>
+                <span class="model-tag">${{escapeHtml(data.model_label || selectedModel)}}</span>
+              </div>
+              ${{stagesHtml}}
+              ${{reasoningAccordion}}
+              <div style="margin-top: 12px; display: flex; gap: 10px;">
+                <a href="/workspace" class="fixture-btn" style="text-decoration: none; display: inline-block;">🗂️ View Case in Operator Workspace</a>
+              </div>
+            </div>
+          `;
+          messagesContainer.appendChild(agentRow);
+          messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }})
+        .catch(err => {{
+          const typingEl = document.getElementById('active-typing');
+          if (typingEl) typingEl.remove();
+          if (sendBtn) sendBtn.disabled = false;
+
+          const errRow = document.createElement('div');
+          errRow.className = 'msg-row agent';
+          errRow.innerHTML = `
+            <div class="avatar agent-av">SM</div>
+            <div class="msg-bubble" style="color: #f87171; border-color: rgba(239, 68, 68, 0.4);">
+              <strong>Execution Error:</strong> ${{escapeHtml(err.message || 'Failed to connect to agent service.')}}
+            </div>
+          `;
+          messagesContainer.appendChild(errRow);
+          messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }});
+      }}
     </script>
   </body>
 </html>"""
@@ -919,7 +1387,7 @@ def render_workspace(csrf_token: str = "") -> str:
             <input type="checkbox" id="auto-approve-toggle" onchange="toggleAutoApprove(this.checked)" style="width: auto; height: auto; cursor: pointer; accent-color: var(--accent-blue);">
             Autonomous Mode (Auto-Approve)
           </label>
-          <a href="/" class="back-btn">← Back to Picker</a>
+          <a href="/" class="back-btn">← Control Panel & ADK Chat</a>
         </div>
       </div>
 
@@ -999,7 +1467,7 @@ def render_workspace(csrf_token: str = "") -> str:
             
             container.innerHTML = openTasks.map(task => {
               const scopesList = task.allowed_scopes.map(s => 
-                `<label class="scope-item"><input type="checkbox" name="scopes" value="\${esc(s)}" checked> \${esc(s)}</label>`
+                `<label class="scope-item"><input type="checkbox" name="scopes" value="${esc(s)}" checked> ${esc(s)}</label>`
               ).join('');
               
               return `
@@ -1808,6 +2276,33 @@ class SupportMasterHandler(BaseHTTPRequestHandler):
                 self._send_json(updated_task.model_dump(mode="json"), status=200)
             except (ValueError, TypeError, json.JSONDecodeError, KeyError, PermissionError) as error:
                 self._send_json({"error": str(error)}, status=400)
+            return
+
+        if path == "/api/chat":
+            try:
+                assert auth.principal is not None
+                payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
+                message = payload.get("message", "").strip()
+                selected_model = payload.get("model", DEFAULT_MODEL)
+                if not message:
+                    self._send_json({"error": "Message cannot be empty."}, status=400)
+                    return
+                result_text = asyncio.run(
+                    run_workflow(
+                        message,
+                        selected_model,
+                        tenant_id=auth.principal.tenant_id,
+                        initiated_by=auth.principal.subject,
+                    )
+                )
+                self._send_json({
+                    "status": "COMPLETED",
+                    "model": selected_model,
+                    "model_label": _model_label(selected_model),
+                    "response": result_text,
+                }, status=200)
+            except Exception as error:
+                self._send_json({"status": "FAILED", "error": str(error)}, status=500)
             return
 
         form = parse_qs(self.rfile.read(content_length).decode("utf-8"))

@@ -33,8 +33,8 @@ variable "secret_name" {
 
 variable "auth_mode" {
   type        = string
-  default     = "OPTIONAL"
-  description = "Authentication mode for the web service (OPTIONAL for judging demo, REQUIRED for production)."
+  default     = "DISABLED"
+  description = "Authentication mode for the web service (DISABLED for public demo/judging, REQUIRED for production)."
 }
 
 variable "model_name" {
