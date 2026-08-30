@@ -367,14 +367,23 @@ zero-dependency console exporter so local demos never require GCP.
 
 ---
 
-## Modular Pipeline & Adapter Architecture (Phases 33–40)
+---
 
-SupportMaster's platform architecture enforces a strict structural separation:
-- **Immutable Core Skeleton**: Safety gates (`duplicate_work_gate`, `investigation_evidence_join`, `implementation_authorization_gate`, `validation_testing_gate`, `publish_authorization_gate`, `final_audit_gate`, `autonomous_safety_stop`) cannot be disabled or bypassed by tenant configuration.
-- **One Agent Per Stage, Many Thin Adapters**: Stage agents reason solely on canonical data models (`SupportCase`, `RepositoryDescriptor`, `TestRunResult`, `CIStatus`, etc.) and consume capability handles (`CanFetchCase`, `CanSearchCode`, `CanTriggerCI`, `CanSendNotification`, etc.).
-- **Structural Gate Isolation**: Adapters contain zero reasoning and are structurally prevented via AST guardrails from writing or modifying gate states.
-- **Tenant Topology & Bindings**: Tenants configure which capability nodes run (`pipeline_topology`) and which registered adapter implements them (`adapter_bindings`), with write-time validation and graceful capability gap degradation.
-- **Adapter Conformance Test Suite**: Dedicated contract verification suite in `tests/conformance/` ensuring third-party adapters conform to canonical interfaces.
+## Key Enterprise Highlights & Value Propositions
 
-For details on writing and registering new adapters, see [docs/adapters.md](docs/adapters.md).
+SupportMaster is engineered from the ground up for high-availability enterprise environments:
+
+1. **Zero-Downtime Rolling Deployments & Live Operational Continuity**:
+   - Updates are rolled out via immutable Cloud Run revisions with automated startup and readiness probe verification.
+   - Traffic transitions seamlessly to new revisions without interrupting active user sessions or dropping in-flight requests.
+   - Long-running multi-agent tasks and human-in-the-loop review queues are durably preserved in transactional SQLite workspaces with random-suffixed idempotency keys.
+
+2. **Interactive ADK Multi-Agent Reasoning & Dual-View Operator Experience**:
+   - **Autonomous Scenario Launcher**: One-click reproduction and remediation of seeded real-world incidents (SaaS SSO invoice bugs, Redis connection leaks, etc.).
+   - **ADK Live Chat & Step-by-Step Reasoning**: Live inspectability of internal agent thoughts, multi-stage pipelines (`Intake` ➔ `Investigation` ➔ `Duplicate Gates` ➔ `Remediation` ➔ `Verification` ➔ `Publish`), and detailed tool call receipts.
+   - **Operator Case Workspace**: Comprehensive tenant case dashboard with OpenTelemetry tracing, scorecard metrics, and human-in-the-loop safety approvals.
+
+3. **Deterministic Safety Skeleton & Non-Bypassable Governance**:
+   - Hard structural separation between core safety gates and tenant capability nodes.
+   - Automatic duplicate incident detection, self-healing test loops (3x automated retry with directive escalation), and tamper-evident SHA-256 telemetry chains.
 
