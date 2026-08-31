@@ -34,6 +34,14 @@ def _steps(value: Any) -> list[str]:
     return [str(value)]
 
 
+import re
+
+
+def _extract_header(pattern: str, text: str) -> str | None:
+    match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+    return match.group(1).strip() if match else None
+
+
 def normalize_case(
     payload: Mapping[str, Any],
     *,
@@ -54,23 +62,39 @@ def normalize_case(
     }
     metadata = dict(payload.get("metadata") or {}) if isinstance(payload.get("metadata"), Mapping) else {}
     metadata.update({str(key): value for key, value in payload.items() if key not in known})
+
+    # Extract structured fields from description if not provided in top-level payload
+    service = _first(payload, "service") or _extract_header(r"^(?:[-*]\s*)?(?:Affected\s+)?service\s*:\s*(.+)$", description)
+    product = _first(payload, "product") or _extract_header(r"^(?:[-*]\s*)?(?:Affected\s+)?product\s*:\s*(.+)$", description)
+    environment = _first(payload, "environment") or _extract_header(r"^(?:[-*]\s*)?environment\s*:\s*(.+)$", description)
+    priority = _first(payload, "priority") or _extract_header(r"^(?:[-*]\s*)?priority\s*:\s*(.+)$", description)
+    severity = _first(payload, "severity") or _extract_header(r"^(?:[-*]\s*)?severity\s*:\s*(.+)$", description)
+    requester = _first(payload, "requester", "reporter") or _extract_header(r"^(?:[-*]\s*)?reported\s+by\s*:\s*(.+)$", description) or _extract_header(r"^(?:[-*]\s*)?reporter\s*:\s*(.+)$", description)
+    customer_account = _first(payload, "customer_account", "customer") or _extract_header(r"^(?:[-*]\s*)?customer(?:\s+account)?\s*:\s*(.+)$", description)
+
+    steps_val = _first(payload, "reproduction_steps", "reproduction", "steps")
+    if not steps_val:
+        steps_match = re.search(r"(?:##\s*Reproduction\s+steps|Reproduction\s+steps\s*:|Steps\s+to\s+reproduce\s*:)\s*\n((?:\s*(?:\d+[\.\)]|[-*])\s+.+\n?)+)", description, re.IGNORECASE)
+        if steps_match:
+            steps_val = [line.strip(" -\t*") for line in steps_match.group(1).splitlines() if line.strip()]
+
     return SupportCase(
         tenant_id=tenant_id,
         source_system=source_system,
         external_id=str(_first(payload, "external_id", "ticket_id", "case_id", "key", "id") or "") or None,
         title=title,
         description=description,
-        requester=_first(payload, "requester", "reporter"),
-        customer_account=_first(payload, "customer_account", "customer"),
-        priority=_first(payload, "priority"),
-        severity=_first(payload, "severity"),
-        product=_first(payload, "product"),
-        service=_first(payload, "service"),
-        environment=_first(payload, "environment"),
-        application_version=_first(payload, "application_version", "version"),
-        reproduction_steps=_steps(_first(payload, "reproduction_steps", "reproduction", "steps")),
-        expected_behavior=_first(payload, "expected_behavior", "expected"),
-        actual_behavior=_first(payload, "actual_behavior", "actual"),
+        requester=requester,
+        customer_account=customer_account,
+        priority=priority,
+        severity=severity,
+        product=product,
+        service=service,
+        environment=environment,
+        application_version=_first(payload, "application_version", "version") or _extract_header(r"^(?:[-*]\s*)?service\s+version\s*:\s*(.+)$", description),
+        reproduction_steps=_steps(steps_val),
+        expected_behavior=_first(payload, "expected_behavior", "expected") or _extract_header(r"^(?:[-*]\s*)?expected\s+behavior\s*:\s*(.+)$", description),
+        actual_behavior=_first(payload, "actual_behavior", "actual") or _extract_header(r"^(?:[-*]\s*)?actual\s+behavior\s*:\s*(.+)$", description),
         customer_impact=_first(payload, "customer_impact", "impact"),
         attachments=payload.get("attachments") or [],
         metadata=metadata,

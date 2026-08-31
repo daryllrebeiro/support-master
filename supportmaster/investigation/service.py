@@ -88,8 +88,10 @@ class InvestigationService:
 
     def missing_evidence(self, case: SupportCase, records: Iterable[EvidenceRecord]) -> list[MissingEvidence]:
         types = {record.source_type.casefold() for record in records}
+        has_log_record = any("log" in source or "trace" in source for source in types)
+        has_log_in_text = bool(re.search(r"(?:stack\s*trace|error\s*log|exception|java\.lang|traceback|at\s+[\w\.\$]+\([\w\.\$]+:\d+\)|exit code \d+|oomkilled|\d{4}-\d{2}-\d{2}t\d{2}:\d{2}:\d{2})", case.description, re.IGNORECASE))
         missing: list[MissingEvidence] = []
-        if not any("log" in source or "trace" in source for source in types):
+        if not (has_log_record or has_log_in_text):
             missing.append(MissingEvidence(evidence_type="APPLICATION_LOGS", importance="IMPORTANT", reason="No runtime logs or traces are attached.", expected_information="Observed errors, timestamps, and execution context."))
         if not case.reproduction_steps:
             missing.append(MissingEvidence(evidence_type="REPRODUCTION_DATA", importance="IMPORTANT", reason="The case has no reproducible steps.", expected_information="A repeatable trigger and expected versus actual behavior."))
