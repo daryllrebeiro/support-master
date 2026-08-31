@@ -212,8 +212,23 @@ class SQLiteRunStore:
     def save_case(self, case: SupportCase) -> SupportCase:
         payload = case.model_dump(mode="json")
         with self._connect() as connection:
+            if case.external_id:
+                existing = connection.execute(
+                    "SELECT case_id FROM support_cases WHERE tenant_id=? AND source_system=? AND external_id=?",
+                    (case.tenant_id, case.source_system, case.external_id),
+                ).fetchone()
+                if existing:
+                    existing_id = existing[0]
+                    connection.execute(
+                        "UPDATE support_cases SET status=?, case_json=?, updated_at=? WHERE case_id=?",
+                        (case.status, json.dumps(payload), case.updated_at.isoformat(), existing_id),
+                    )
+                    return case
+
             connection.execute(
-                "INSERT INTO support_cases(case_id, tenant_id, source_system, external_id, status, case_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(case_id) DO UPDATE SET status=excluded.status, case_json=excluded.case_json, updated_at=excluded.updated_at",
+                "INSERT INTO support_cases(case_id, tenant_id, source_system, external_id, status, case_json, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(case_id) DO UPDATE SET status=excluded.status, case_json=excluded.case_json, updated_at=excluded.updated_at",
                 (
                     case.case_id,
                     case.tenant_id,
