@@ -121,11 +121,12 @@ class CaseMemoryStore:
         """Return the top-k most similar past cases for the given query text."""
         if not query.strip():
             return []
-        sanitized = " ".join(
-            word for word in query.split() if word.isalnum() or len(word) > 2
-        )
-        if not sanitized:
+        words = [
+            word for word in query.split() if word.isalnum() and len(word) > 2
+        ]
+        if not words:
             return []
+        sanitized = " OR ".join(words)
         conn = self._connect()
         try:
             # FTS5 MATCH must reference the virtual table directly, so the

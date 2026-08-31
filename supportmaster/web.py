@@ -43,6 +43,33 @@ from .rate_limiter import TenantRateLimiter
 
 RATE_LIMITER = TenantRateLimiter(default_capacity=5.0, default_fill_rate=0.5)
 
+# Map ADK agent author names to pipeline stage labels for live streaming.
+# When an event's author changes, a STAGE_TRANSITION event is emitted.
+AUTHOR_TO_STAGE: dict[str, str] = {
+    "ticket_analysis_agent": "INTAKE",
+    "investigation_agent": "INVESTIGATION",
+    "duplicate_work_agent": "DUPLICATE_GATES",
+    "evidence_agent": "INVESTIGATION",
+    "repository_agent": "INVESTIGATION",
+    "root_cause_agent": "INVESTIGATION",
+    "remediation_agent": "REMEDIATION",
+    "review_agent": "REMEDIATION",
+    "code_change_agent": "REMEDIATION",
+    "implementation_agent": "REMEDIATION",
+    "validation_agent": "VERIFICATION",
+    "test_result_agent": "VERIFICATION",
+    "publish_agent": "PUBLISH",
+    "resolution_agent": "PUBLISH",
+    "customer_response_agent": "PUBLISH",
+    "audit_agent": "PUBLISH",
+    "workflow_summary_agent": "PUBLISH",
+    "workflow_control_agent": "PUBLISH",
+}
+
+# In-memory Q&A session histories for Phase 42 case-scoped evidence Q&A.
+# Keyed by (case_id, tenant_id). Cleared on server restart.
+_CASE_QA_SESSIONS: dict[tuple[str, str], list[dict[str, str]]] = {}
+
 
 MOCK_JIRA_ISSUE = """Jira key: FIN-1847
 Summary: CSV invoice export fails with OutOfMemoryError for enterprise tenants
@@ -804,6 +831,42 @@ def render_page(
         return div.innerHTML;
       }}
 
+      const urlParams = new URLSearchParams(window.location.search);
+      const activeCaseId = urlParams.get('case_id');
+
+      if (activeCaseId) {{
+        // Switch to Chat tab automatically when a case is passed
+        switchView('chat');
+        // Fetch case details to show banner
+        fetch('/api/cases/' + encodeURIComponent(activeCaseId))
+          .then(r => r.json())
+          .then(snap => {{
+            if (snap && snap.case) {{
+              const banner = document.createElement('div');
+              banner.style.background = 'rgba(59, 130, 246, 0.15)';
+              banner.style.border = '1px solid rgba(59, 130, 246, 0.3)';
+              banner.style.padding = '10px 16px';
+              banner.style.borderRadius = '8px';
+              banner.style.marginBottom = '16px';
+              banner.style.fontSize = '0.85rem';
+              banner.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <div>
+                    <span style="font-weight:700; color:var(--accent-blue);">📋 CASE EVIDENCE Q&A MODE:</span> 
+                    <strong>${{escapeHtml(snap.case.title)}}</strong> (${{escapeHtml(snap.case.case_id)}})
+                  </div>
+                  <a href="/workspace" style="color:var(--accent-cyan); text-decoration:none; font-weight:600;">View in Workspace →</a>
+                </div>
+                <div style="color:var(--text-secondary); margin-top:4px; font-size:0.8rem;">
+                  Grounded strictly in verified investigation artifacts, root cause records, and test receipts.
+                </div>
+              `;
+              const container = document.getElementById('chat-messages');
+              if (container) container.prepend(banner);
+            }}
+          }}).catch(console.error);
+      }}
+
       function submitChatMessage() {{
         const input = document.getElementById('chat-input');
         const text = input.value.trim();
@@ -844,7 +907,57 @@ def render_page(
         const sendBtn = document.getElementById('chat-send-btn');
         if (sendBtn) sendBtn.disabled = true;
 
-        // 3. Post to /api/chat
+        if (activeCaseId) {{
+          // Route to Case-Scoped Evidence Q&A endpoint (Phase 42)
+          fetch('/api/cases/' + encodeURIComponent(activeCaseId) + '/ask', {{
+            method: 'POST',
+            headers: {{ 'Content-Type': 'application/json' }},
+            body: JSON.stringify({{ question: text }})
+          }})
+          .then(res => res.json())
+          .then(data => {{
+            const typingEl = document.getElementById('active-typing');
+            if (typingEl) typingEl.remove();
+            if (sendBtn) sendBtn.disabled = false;
+
+            const agentRow = document.createElement('div');
+            agentRow.className = 'msg-row agent';
+            agentRow.innerHTML = `
+              <div class="avatar agent-av">SM</div>
+              <div class="msg-bubble" style="width: 100%;">
+                <div class="agent-header">
+                  <span class="agent-name">SupportMaster</span>
+                  <span class="model-tag" style="background:rgba(59,130,246,0.2);color:#93c5fd;border-color:rgba(59,130,246,0.3);">Case Evidence Assistant (${{escapeHtml(activeCaseId)}})</span>
+                </div>
+                <div style="white-space: pre-wrap; margin-top: 6px; line-height: 1.5;">${{escapeHtml(data.answer || data.error || 'No answer generated.')}}</div>
+                <div style="margin-top: 12px; display: flex; gap: 10px;">
+                  <a href="/workspace" class="fixture-btn" style="text-decoration: none; display: inline-block;">🗂️ View Case in Workspace</a>
+                </div>
+              </div>
+            `;
+            messagesContainer.appendChild(agentRow);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+          }})
+          .catch(err => {{
+            const typingEl = document.getElementById('active-typing');
+            if (typingEl) typingEl.remove();
+            if (sendBtn) sendBtn.disabled = false;
+
+            const errRow = document.createElement('div');
+            errRow.className = 'msg-row agent';
+            errRow.innerHTML = `
+              <div class="avatar agent-av">SM</div>
+              <div class="msg-bubble" style="color: #f87171; border-color: rgba(239, 68, 68, 0.4);">
+                <strong>Q&A Error:</strong> ${{escapeHtml(err.message || 'Failed to query evidence artifacts.')}}
+              </div>
+            `;
+            messagesContainer.appendChild(errRow);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+          }});
+          return;
+        }}
+
+        // 3. Post to /api/chat — now returns run_id immediately, then stream via SSE
         fetch('/api/chat', {{
           method: 'POST',
           headers: {{ 'Content-Type': 'application/json' }},
@@ -852,51 +965,63 @@ def render_page(
         }})
         .then(res => res.json())
         .then(data => {{
-          const typingEl = document.getElementById('active-typing');
-          if (typingEl) typingEl.remove();
-          if (sendBtn) sendBtn.disabled = false;
-
-          const agentRow = document.createElement('div');
-          agentRow.className = 'msg-row agent';
-
-          let responseContent = data.response || data.error || 'Workflow execution completed.';
-          let stagesHtml = `
-            <div class="stage-flow">
-              <span class="stage-pill active">Intake</span>
-              <span class="stage-pill active">Investigation</span>
-              <span class="stage-pill active">Duplicate Gates</span>
-              <span class="stage-pill active">Remediation</span>
-              <span class="stage-pill active">Verification</span>
-              <span class="stage-pill active">Publish</span>
-            </div>
-          `;
-
-          let reasoningAccordion = '';
-          if (data.response) {{
-            reasoningAccordion = `
-              <details class="reasoning-box" open>
-                <summary>🧠 ADK Multi-Agent Execution Trace & Verification</summary>
-                <div class="reasoning-content">${{escapeHtml(data.response)}}</div>
-              </details>
+          if (data.error) {{
+            const typingEl = document.getElementById('active-typing');
+            if (typingEl) typingEl.remove();
+            if (sendBtn) sendBtn.disabled = false;
+            const errRow = document.createElement('div');
+            errRow.className = 'msg-row agent';
+            errRow.innerHTML = `
+              <div class="avatar agent-av">SM</div>
+              <div class="msg-bubble" style="color: #f87171; border-color: rgba(239, 68, 68, 0.4);">
+                <strong>Execution Error:</strong> ${{escapeHtml(data.error)}}
+              </div>
             `;
+            messagesContainer.appendChild(errRow);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            return;
           }}
 
+          const runId = data.run_id;
+          const modelLabel = data.model_label || selectedModel;
+
+          // Build the live agent response row with stage badges and reasoning accordion
+          const agentRow = document.createElement('div');
+          agentRow.className = 'msg-row agent';
+          agentRow.id = 'live-response-' + runId;
           agentRow.innerHTML = `
             <div class="avatar agent-av">SM</div>
             <div class="msg-bubble" style="width: 100%;">
               <div class="agent-header">
                 <span class="agent-name">SupportMaster</span>
-                <span class="model-tag">${{escapeHtml(data.model_label || selectedModel)}}</span>
+                <span class="model-tag">${{escapeHtml(modelLabel)}}</span>
+                <span class="live-indicator" id="live-dot-${{runId}}" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#10b981;margin-left:8px;animation:pulse 1.5s infinite;"></span>
               </div>
-              ${{stagesHtml}}
-              ${{reasoningAccordion}}
-              <div style="margin-top: 12px; display: flex; gap: 10px;">
+              <div class="stage-flow" id="stage-flow-${{runId}}">
+                <span class="stage-pill" data-stage="INTAKE">1. Intake</span>
+                <span class="stage-pill" data-stage="INVESTIGATION">2. Investigation</span>
+                <span class="stage-pill" data-stage="DUPLICATE_GATES">3. Duplicate Gates</span>
+                <span class="stage-pill" data-stage="REMEDIATION">4. Remediation</span>
+                <span class="stage-pill" data-stage="VERIFICATION">5. Verification</span>
+                <span class="stage-pill" data-stage="PUBLISH">6. Publish</span>
+              </div>
+              <details class="reasoning-box" open>
+                <summary>🧠 ADK Multi-Agent Execution Trace & Verification</summary>
+                <div class="reasoning-content" id="reasoning-${{runId}}" style="white-space:pre-wrap;"></div>
+              </details>
+              <div style="margin-top: 12px; display: flex; gap: 10px;" id="actions-${{runId}}" hidden>
                 <a href="/workspace" class="fixture-btn" style="text-decoration: none; display: inline-block;">🗂️ View Case in Operator Workspace</a>
               </div>
             </div>
           `;
+          // Replace typing indicator with the live row
+          const typingEl = document.getElementById('active-typing');
+          if (typingEl) typingEl.remove();
           messagesContainer.appendChild(agentRow);
           messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+          // Open SSE connection to stream live events
+          connectToEventStream(runId, sendBtn);
         }})
         .catch(err => {{
           const typingEl = document.getElementById('active-typing');
@@ -914,6 +1039,101 @@ def render_page(
           messagesContainer.appendChild(errRow);
           messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }});
+      }}
+
+      // =======================================================================
+      // SSE Live Event Stream — Phase 41
+      // =======================================================================
+      const STAGE_ORDER = ['INTAKE', 'INVESTIGATION', 'DUPLICATE_GATES', 'REMEDIATION', 'VERIFICATION', 'PUBLISH'];
+
+      function connectToEventStream(runId, sendBtn, retryCount) {{
+        retryCount = retryCount || 0;
+        const maxRetries = 5;
+        const es = new EventSource('/api/stream/' + runId);
+        let completed = false;
+
+        es.onmessage = function(evt) {{
+          try {{
+            const data = JSON.parse(evt.data);
+            const eventType = data.event_type;
+            const payload = data.payload || {{}};
+
+            if (eventType === 'STAGE_TRANSITION') {{
+              // Advance stage badges up to and including the current stage
+              const stageFlow = document.getElementById('stage-flow-' + runId);
+              if (stageFlow) {{
+                const currentStage = payload.stage;
+                const currentIdx = STAGE_ORDER.indexOf(currentStage);
+                const pills = stageFlow.querySelectorAll('.stage-pill');
+                pills.forEach((pill, i) => {{
+                  if (i <= currentIdx) {{
+                    pill.classList.add('active');
+                  }}
+                }});
+              }}
+            }}
+
+            if (eventType === 'ADK_EVENT') {{
+              // Append to reasoning accordion
+              const reasoning = document.getElementById('reasoning-' + runId);
+              if (reasoning) {{
+                const author = payload.author || 'agent';
+                const text = payload.text || '';
+                const line = document.createElement('div');
+                line.style.marginBottom = '8px';
+                line.innerHTML = '<strong style="color:var(--accent-cyan);">[' + escapeHtml(author) + ']</strong> ' + escapeHtml(text);
+                reasoning.appendChild(line);
+              }}
+              const messagesContainer = document.getElementById('chat-messages');
+              if (messagesContainer) messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }}
+
+            if (eventType === 'RUN_COMPLETED' || eventType === 'ADK_RUN_SNAPSHOT') {{
+              // Mark all stages as completed
+              const stageFlow = document.getElementById('stage-flow-' + runId);
+              if (stageFlow) {{
+                stageFlow.querySelectorAll('.stage-pill').forEach(p => p.classList.add('active'));
+              }}
+              // Show action buttons, remove live dot
+              const actions = document.getElementById('actions-' + runId);
+              if (actions) actions.hidden = false;
+              const liveDot = document.getElementById('live-dot-' + runId);
+              if (liveDot) liveDot.style.display = 'none';
+              if (sendBtn) sendBtn.disabled = false;
+              completed = true;
+              es.close();
+            }}
+
+            if (eventType === 'RUN_FAILED') {{
+              const reasoning = document.getElementById('reasoning-' + runId);
+              if (reasoning) {{
+                const errLine = document.createElement('div');
+                errLine.style.color = '#f87171';
+                errLine.textContent = '❌ Run failed: ' + (payload.error || payload.reason || 'Unknown error');
+                reasoning.appendChild(errLine);
+              }}
+              if (sendBtn) sendBtn.disabled = false;
+              const liveDot = document.getElementById('live-dot-' + runId);
+              if (liveDot) liveDot.style.display = 'none';
+              completed = true;
+              es.close();
+            }}
+          }} catch(e) {{ /* ignore parse errors on SSE */ }}
+        }};
+
+        es.onerror = function() {{
+          es.close();
+          if (!completed && retryCount < maxRetries) {{
+            // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+            const delay = Math.pow(2, retryCount) * 1000;
+            setTimeout(() => connectToEventStream(runId, sendBtn, retryCount + 1), delay);
+          }} else if (!completed) {{
+            // Give up — show what we have and re-enable send
+            if (sendBtn) sendBtn.disabled = false;
+            const liveDot = document.getElementById('live-dot-' + runId);
+            if (liveDot) liveDot.style.display = 'none';
+          }}
+        }};
       }}
     </script>
   </body>
@@ -1527,9 +1747,15 @@ def render_workspace(csrf_token: str = "") -> str:
             
             const views = await Promise.all(data.cases.map(async c => {
               const base = '/api/cases/' + encodeURIComponent(c.case_id);
+              const [snapshot, activityData, relatedData] = await Promise.all([
+                fetch(base).then(r => r.json()).catch(() => null),
+                fetch(base + '/activity').then(r => r.json()).catch(() => ({ events: [] })),
+                fetch(base + '/related').then(r => r.json()).catch(() => ({ related: [] }))
+              ]);
               return {
-                snapshot: await fetch(base).then(r => r.json()),
-                activity: await fetch(base + '/activity').then(r => r.json()).then(r => r.events || [])
+                snapshot: snapshot,
+                activity: activityData ? activityData.events || [] : [],
+                related: relatedData ? relatedData.related || [] : []
               };
             }));
             
@@ -1569,6 +1795,26 @@ def render_workspace(csrf_token: str = "") -> str:
                   <span class="timestamp">${esc(e.recorded_at ? e.recorded_at.split('T')[1].slice(0, 8) + ' UTC' : '')}</span>
                 </div>
               `).join('') || '<div class="muted">No telemetry events.</div>';
+
+              const relatedItems = (v.related || []).map(r => {
+                const isLineage = r.relationship === 'PARENT_RERUN' || r.relationship === 'CHILD_RERUN';
+                const tagLabel = r.relationship === 'PARENT_RERUN' ? 'ORIGINAL PARENT' :
+                                 r.relationship === 'CHILD_RERUN' ? 'SUBSEQUENT RERUN' : 'SIMILAR INCIDENT';
+                const tagColor = isLineage ? 'var(--accent-purple, #8b5cf6)' : 'var(--accent-cyan, #06b6d4)';
+                return `
+                  <div style="background: rgba(30, 41, 59, 0.6); padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color); font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                    <div>
+                      <span style="font-size: 0.7rem; font-weight: 700; color: ${tagColor}; text-transform: uppercase; margin-right: 6px;">[${esc(tagLabel)}]</span>
+                      <strong>${esc(r.title || r.case_id)}</strong>
+                      <span style="color: var(--text-secondary); margin-left: 6px;">(${esc(r.case_id)})</span>
+                      <div style="color: var(--text-muted); font-size: 0.8rem; margin-top: 2px;">${esc(r.summary)}</div>
+                    </div>
+                    <a href="/?case_id=${encodeURIComponent(r.case_id)}" class="fixture-btn" style="text-decoration: none; padding: 4px 8px; font-size: 0.75rem; white-space: nowrap;">Ask Q&A</a>
+                  </div>
+                `;
+              }).join('');
+
+              const rootCauseSummary = snap.planning && snap.planning.root_cause ? snap.planning.root_cause.root_cause_summary : '';
 
               return `
                 <div class="case-card" id="case-${esc(snap.case.case_id)}">
@@ -1612,8 +1858,23 @@ def render_workspace(csrf_token: str = "") -> str:
                     </div>
                   </div>
 
-                  <div style="margin-top: 20px; display: flex; gap: 12px; border-top: 1px solid var(--border-color); padding-top: 16px;">
-                    <a href="/?model=gemini-3.5-flash" class="fixture-btn" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+                  ${relatedItems ? `
+                  <div style="margin-top: 16px;">
+                    <h4 style="margin: 0 0 8px; font-size: 0.85rem; text-transform: uppercase; color: var(--text-secondary);">Cross-Run Memory & Related Cases</h4>
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                      ${relatedItems}
+                    </div>
+                  </div>
+                  ` : ''}
+
+                  <div style="margin-top: 20px; display: flex; gap: 12px; border-top: 1px solid var(--border-color); padding-top: 16px; flex-wrap: wrap;">
+                    <a href="/?case_id=${encodeURIComponent(snap.case.case_id)}" class="fixture-btn" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+                      📋 Case Evidence Q&A
+                    </a>
+                    <button type="button" class="fixture-btn" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4);" onclick="promptRerun('${esc(snap.case.case_id)}', '${esc(snap.case.title.replace(/'/g, "\\'"))}', '${esc(snap.case.description.slice(0, 300).replace(/'/g, "\\'"))}', '${esc(rootCauseSummary.replace(/'/g, "\\'"))}')">
+                      🔄 Rerun with New Context
+                    </button>
+                    <a href="/?model=gemini-3.5-flash" class="fixture-btn" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px; margin-left: auto;">
                       💬 Open in ADK Live Chat
                     </a>
                   </div>
@@ -1623,6 +1884,37 @@ def render_workspace(csrf_token: str = "") -> str:
           }).catch(e => {
             document.getElementById('cases-list').innerHTML = '<p class="muted">Error loading cases: ' + esc(e) + '</p>';
           });
+      }
+
+      function promptRerun(caseId, title, description, rootCause) {
+        const note = prompt('Enter operator note or new customer context for the rerun of case ' + caseId + ':');
+        if (!note || !note.trim()) return;
+
+        const rerunDescription = '## Prior Incident Summary\\n' + description + '\\n\\n## Prior Root Cause Analysis\\n' + (rootCause || 'Under investigation') + '\\n\\n## Operator Note / Appended Context\\n' + note.trim();
+        
+        fetch('/api/cases', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: 'Rerun: ' + title,
+            description: rerunDescription,
+            source_system: 'RERUN',
+            metadata: { parent_case_id: caseId }
+          })
+        })
+        .then(r => r.json())
+        .then(data => {
+          if (data.case && data.case.case_id) {
+            alert('Rerun case created successfully (' + data.case.case_id + ')! Opening workspace.');
+            loadWorkspace();
+          } else {
+            alert('Case created: ' + JSON.stringify(data));
+            loadWorkspace();
+          }
+        })
+        .catch(err => {
+          alert('Failed to submit rerun: ' + err.message);
+        });
       }
 
       function toggleScopes(select, taskId) {
@@ -1880,6 +2172,70 @@ class SupportMasterHandler(BaseHTTPRequestHandler):
                 self._send_json({"events": [event.model_dump(mode="json") for event in CaseWorkspaceService(store).activity(case_id, auth.principal.tenant_id)]}, status=200)
             except KeyError as error:
                 self._send_json({"error": str(error)}, status=404)
+            return
+        if path.startswith("/api/cases/") and path.endswith("/related"):
+            auth = AUTHENTICATOR.authenticate(self.headers)
+            if not self._authorized(auth, "AUDIT_READ"):
+                return
+            try:
+                assert auth.principal is not None
+                case_id = path.split("/")[3]
+                store = SQLiteRunStore(os.getenv("SUPPORTMASTER_RUN_DB", ".supportmaster/runs.db"))
+                case = store.get_case(case_id, tenant_id=auth.principal.tenant_id)
+                
+                from .memory.case_store import CaseMemoryStore
+                memory_store = CaseMemoryStore()
+                query = f"{case.title} {case.description}"
+                similar_cases = memory_store.retrieve_similar(query, tenant_id=auth.principal.tenant_id, top_k=5)
+                
+                related_list = []
+                # 1. Lineage: Check if current case has parent_case_id in metadata
+                parent_case_id = case.metadata.get("parent_case_id") if isinstance(case.metadata, dict) else None
+                if parent_case_id and parent_case_id != case_id:
+                    try:
+                        p_case = store.get_case(parent_case_id, tenant_id=auth.principal.tenant_id)
+                        related_list.append({
+                            "case_id": p_case.case_id,
+                            "title": p_case.title,
+                            "status": p_case.status,
+                            "relationship": "PARENT_RERUN",
+                            "similarity_rank": 0.0,
+                            "summary": f"Original parent case of this rerun",
+                        })
+                    except Exception:
+                        pass
+                
+                # 2. Lineage: Check if any other cases are reruns of this case
+                try:
+                    all_cases = store.list_cases(auth.principal.tenant_id)
+                    for c in all_cases:
+                        if c.case_id != case_id and isinstance(c.metadata, dict) and c.metadata.get("parent_case_id") == case_id:
+                            related_list.append({
+                                "case_id": c.case_id,
+                                "title": c.title,
+                                "status": c.status,
+                                "relationship": "CHILD_RERUN",
+                                "similarity_rank": 0.0,
+                                "summary": f"Subsequent rerun of this case",
+                            })
+                except Exception:
+                    pass
+
+                # 3. FTS5 Memory Similarities
+                for sim in similar_cases:
+                    if sim.case_id != case_id and not any(r["case_id"] == sim.case_id for r in related_list):
+                        related_list.append({
+                            "case_id": sim.case_id,
+                            "title": sim.title,
+                            "status": "RESOLVED",
+                            "relationship": "SIMILAR_PATTERN",
+                            "similarity_rank": round(sim.similarity_rank, 2),
+                            "summary": sim.resolution_summary or sim.root_cause or "Similar symptom pattern",
+                        })
+
+                self._send_json({"related": related_list}, status=200)
+            except Exception as error:
+                self._send_json({"error": str(error)}, status=404 if "not found" in str(error).lower() else 500)
             return
         if path == "/api/reviews":
             auth = AUTHENTICATOR.authenticate(self.headers)
@@ -2162,6 +2518,88 @@ class SupportMasterHandler(BaseHTTPRequestHandler):
             except (ValueError, TypeError, json.JSONDecodeError, KeyError) as error:
                 self._send_json({"error": str(error)}, status=400)
             return
+        if path.startswith("/api/cases/") and path.endswith("/ask"):
+            try:
+                assert auth.principal is not None
+                payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
+                question = str(payload.get("question", "")).strip()
+                if not question:
+                    raise ValueError("A question is required for evidence Q&A.")
+                case_id = path.split("/")[3]
+                store = SQLiteRunStore(os.getenv("SUPPORTMASTER_RUN_DB", ".supportmaster/runs.db"))
+                case = store.get_case(case_id, tenant_id=auth.principal.tenant_id)
+                runs = store.list_runs_for_case(case_id, tenant_id=auth.principal.tenant_id)
+                
+                context_parts = [f"Support Case:\n{case.workflow_text()}"]
+                investigation = CaseWorkspaceService._optional(lambda: store.get_investigation_summary(case_id, tenant_id=auth.principal.tenant_id))
+                planning = CaseWorkspaceService._optional(lambda: store.get_planning_assessment(case_id, tenant_id=auth.principal.tenant_id))
+                resolution = CaseWorkspaceService._optional(lambda: store.get_resolution_bundle(case_id, tenant_id=auth.principal.tenant_id))
+
+                if investigation:
+                    context_parts.append(f"Investigation Summary:\nStatus: {investigation.investigation_status}\nReadiness Reason: {investigation.readiness_reason}\nMissing Evidence: {json.dumps([m.model_dump(mode='json') for m in investigation.missing_evidence])}")
+                if planning:
+                    context_parts.append(f"Root Cause Assessment:\n{planning.root_cause.model_dump_json(indent=2)}")
+                    context_parts.append(f"Remediation Assessment:\n{planning.remediation.model_dump_json(indent=2)}")
+                if resolution:
+                    context_parts.append(f"Resolution Bundle:\n{resolution.resolution.model_dump_json(indent=2)}")
+                
+                # If there are runs, get latest run state for additional context
+                if runs:
+                    latest_run_id = runs[-1]["run_id"]
+                    try:
+                        latest_state = store.load_state(latest_run_id)
+                        if getattr(latest_state, "code_change_result", None):
+                            context_parts.append(f"Code Change Result:\n{json.dumps(latest_state.code_change_result, indent=2)[:2000]}")
+                        if getattr(latest_state, "validation_analysis", None):
+                            context_parts.append(f"Validation Analysis:\n{json.dumps(latest_state.validation_analysis, indent=2)[:2000]}")
+                        if getattr(latest_state, "operation_receipts", None):
+                            context_parts.append(f"Operation Receipts:\n{json.dumps([r.model_dump(mode='json') for r in latest_state.operation_receipts], indent=2)[:2000]}")
+                    except Exception:
+                        pass
+                
+                # Add prior session Q&A history
+                session_key = (case_id, auth.principal.tenant_id)
+                history = _CASE_QA_SESSIONS.get(session_key, [])
+                history_text = "\n".join(f"Q: {h['question']}\nA: {h['answer']}" for h in history[-5:])
+                if history_text:
+                    context_parts.append(f"Prior Conversation Turns:\n{history_text}")
+
+                context = "\n\n".join(context_parts)
+                
+                from google import genai
+                from google.genai import types
+                api_key = os.getenv("GOOGLE_API_KEY")
+                if not api_key:
+                    rc = planning.root_cause.root_cause_summary if planning else "under investigation"
+                    answer = f"[Evidence Q&A Mock Response] For case {case_id}: The recorded root cause is '{rc}'. Verified according to persisted evidence artifacts."
+                else:
+                    client = genai.Client(api_key=api_key)
+                    system_instruction = (
+                        "You are the SupportMaster Case Evidence Assistant.\n"
+                        "Your goal is to answer questions about a specific support case strictly using the provided case evidence, investigation artifacts, and resolution records.\n"
+                        "Rules:\n"
+                        "1. Answer objectively, citing specific evidence, files, lines, or root-cause details from the context.\n"
+                        "2. If the question asks something that is NOT covered by the provided evidence or artifacts, explicitly state that the stored evidence does not contain that information rather than speculating.\n"
+                        "3. Do NOT suggest or execute code changes, and do NOT alter any gate states or workflow decisions."
+                    )
+                    response = client.models.generate_content(
+                        model=DEFAULT_MODEL,
+                        contents=f"Context:\n{context}\n\nOperator Question: {question}",
+                        config=types.GenerateContentConfig(
+                            system_instruction=system_instruction,
+                            temperature=0.2,
+                        )
+                    )
+                    answer = response.text or "No response from model."
+                
+                # Record in session history
+                history.append({"question": question, "answer": answer})
+                _CASE_QA_SESSIONS[session_key] = history[-10:]
+
+                self._send_json({"answer": answer, "case_id": case_id}, status=200)
+            except Exception as error:
+                self._send_json({"error": str(error)}, status=400 if isinstance(error, (ValueError, TenantAccessError)) else 500)
+            return
         if path.startswith("/api/reviews/") and path.endswith("/chat"):
             try:
                 assert auth.principal is not None
@@ -2299,20 +2737,27 @@ class SupportMasterHandler(BaseHTTPRequestHandler):
                 if not message:
                     self._send_json({"error": "Message cannot be empty."}, status=400)
                     return
-                result_text = asyncio.run(
-                    run_workflow(
-                        message,
-                        selected_model,
-                        tenant_id=auth.principal.tenant_id,
-                        initiated_by=auth.principal.subject,
-                    )
+                # Fire-and-stream: create the run synchronously, then start
+                # the ADK worker in a background thread. The client connects
+                # to /api/stream/{run_id} via EventSource for live updates.
+                run_id, case_id = _prepare_chat_run(
+                    message, selected_model,
+                    tenant_id=auth.principal.tenant_id,
+                    initiated_by=auth.principal.subject,
                 )
+                from threading import Thread
+                Thread(
+                    target=_run_chat_workflow_sync,
+                    args=(run_id, message, selected_model, auth.principal.tenant_id, auth.principal.subject),
+                    daemon=True,
+                ).start()
                 self._send_json({
-                    "status": "COMPLETED",
+                    "status": "STARTED",
+                    "run_id": run_id,
+                    "case_id": case_id,
                     "model": selected_model,
                     "model_label": _model_label(selected_model),
-                    "response": result_text,
-                }, status=200)
+                }, status=202)
             except Exception as error:
                 self._send_json({"status": "FAILED", "error": str(error)}, status=500)
             return
@@ -2364,15 +2809,87 @@ class SupportMasterHandler(BaseHTTPRequestHandler):
         return
 
 
+def _prepare_chat_run(
+    issue: str,
+    model_name: str,
+    *,
+    tenant_id: str = "default",
+    initiated_by: str = "anonymous",
+) -> tuple[str, str]:
+    """Synchronously create case, investigation, planning — return (run_id, case_id).
+
+    This runs the deterministic preparation steps immediately so ``/api/chat``
+    can return the ``run_id`` to the client right away. The slow ADK pipeline
+    is then started in a background thread and streamed via SSE.
+    """
+    if not issue:
+        raise ValueError("A support issue is required.")
+    if len(issue.encode("utf-8")) > OPERATION_SETTINGS.max_issue_bytes:
+        raise ValueError("The support issue exceeds the configured size limit.")
+
+    run_db = Path(os.getenv("SUPPORTMASTER_RUN_DB", ".supportmaster/runs.db"))
+    run_store = SQLiteRunStore(run_db)
+    if run_store.active_queue_depth() >= OPERATION_SETTINGS.max_queue_depth:
+        raise RuntimeError("SupportMaster task queue is at its configured capacity.")
+    organization = OrganizationContextService(run_store).ensure(tenant_id)
+    if organization.status != "ACTIVE":
+        raise RuntimeError(f"Organization {tenant_id} is not active.")
+    case = normalize_case(
+        {"title": issue.splitlines()[0][:2_000] or "Support case", "description": issue},
+        source_system="MANUAL",
+        tenant_id=tenant_id,
+    )
+    run_store.save_case(case)
+    investigation_summary = InvestigationService(run_store).summarize(case)
+    run_store.save_investigation_summary(investigation_summary)
+    root_cause, remediation = PlanningService().build(case, investigation_summary)
+    planning_assessment = PlanningAssessment(
+        case_id=case.case_id,
+        tenant_id=tenant_id,
+        root_cause=root_cause,
+        remediation=remediation,
+    )
+    run_store.save_planning_assessment(planning_assessment)
+    return str(uuid4()), case.case_id
+
+
+def _run_chat_workflow_sync(
+    run_id: str,
+    issue: str,
+    model_name: str,
+    tenant_id: str,
+    initiated_by: str,
+) -> None:
+    """Background thread entry point — run the full workflow and emit completion event."""
+    try:
+        asyncio.run(
+            run_workflow(
+                issue,
+                model_name,
+                tenant_id=tenant_id,
+                initiated_by=initiated_by,
+                run_id=run_id,
+            )
+        )
+    except Exception as e:
+        logger.exception(f"Background chat workflow failed for run {run_id}: {e}")
+        try:
+            run_store = SQLiteRunStore(os.getenv("SUPPORTMASTER_RUN_DB", ".supportmaster/runs.db"))
+            run_store.append_event(run_id, "RUN_FAILED", {"error": str(e)})
+        except Exception:
+            pass
+
+
 async def run_workflow(
     issue: str,
     model_name: str,
     *,
     tenant_id: str = "default",
     initiated_by: str = "anonymous",
+    run_id: str | None = None,
 ) -> str:
     """Admit one bounded run and release its lease on every exit path."""
-    admission_id = str(uuid4())
+    admission_id = run_id or str(uuid4())
     with RUN_ADMISSION.lease(admission_id):
         return await _run_workflow(issue, model_name, run_id=admission_id, tenant_id=tenant_id, initiated_by=initiated_by)
 
@@ -2494,6 +3011,7 @@ async def _run_workflow(
             session_service=session_service,
         )
         events: list[str] = []
+        last_stage: str | None = None
         message = types.Content(role="user", parts=[types.Part(text=workflow_issue)])
         async for event in runner.run_async(
             user_id=user_id,
@@ -2506,6 +3024,15 @@ async def _run_workflow(
                 continue
             text = "\n".join(part.text for part in event.content.parts if part.text)
             if text:
+                # Emit STAGE_TRANSITION when the pipeline stage changes
+                current_stage = AUTHOR_TO_STAGE.get(event.author)
+                if current_stage and current_stage != last_stage:
+                    run_store.append_event(
+                        session.id,
+                        "STAGE_TRANSITION",
+                        {"stage": current_stage, "author": event.author, "status": "ACTIVE"},
+                    )
+                    last_stage = current_stage
                 events.append(f"[{event.author}]\n{text}")
                 run_store.append_event(
                     session.id,
@@ -2558,6 +3085,7 @@ async def _run_workflow(
             f"{worker_result.error or 'no additional error details'}"
         )
     run_store.mark_run_completed(session.id)
+    run_store.append_event(session.id, "RUN_COMPLETED", {"outcome": "SUCCEEDED"})
     return worker_result.result.get("text", "The workflow returned no text events.")
 
 
@@ -2590,6 +3118,7 @@ async def run_resumed_worker(run_id: str, model_name: str | None) -> None:
             session_service=session_service,
         )
         events: list[str] = []
+        last_stage: str | None = None
         issue = task.payload.get("issue", "")
         message = types.Content(role="user", parts=[types.Part(text=issue)])
         async for event in runner.run_async(
@@ -2603,6 +3132,15 @@ async def run_resumed_worker(run_id: str, model_name: str | None) -> None:
                 continue
             text = "\n".join(part.text for part in event.content.parts if part.text)
             if text:
+                # Emit STAGE_TRANSITION when the pipeline stage changes
+                current_stage = AUTHOR_TO_STAGE.get(event.author)
+                if current_stage and current_stage != last_stage:
+                    run_store.append_event(
+                        run_id,
+                        "STAGE_TRANSITION",
+                        {"stage": current_stage, "author": event.author, "status": "ACTIVE"},
+                    )
+                    last_stage = current_stage
                 events.append(f"[{event.author}]\n{text}")
                 run_store.append_event(
                     run_id,
@@ -2649,6 +3187,7 @@ async def run_resumed_worker(run_id: str, model_name: str | None) -> None:
         worker_result = await worker.run_once_async(execute_task)
         if worker_result and worker_result.outcome == "SUCCEEDED":
             run_store.mark_run_completed(run_id)
+            run_store.append_event(run_id, "RUN_COMPLETED", {"outcome": "SUCCEEDED"})
     except Exception as e:
         logger.exception(f"Background resumed worker failed for run {run_id}: {e}")
 
