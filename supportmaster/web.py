@@ -2160,6 +2160,23 @@ class SupportMasterHandler(BaseHTTPRequestHandler):
                 "fallback_chain": MODEL_RESOLVER.fallback_chain,
             }, status=200)
             return
+        if path == "/api/fixtures":
+            fixtures_dir = Path("fixtures/cases")
+            fixture_names = [f.stem for f in sorted(fixtures_dir.glob("*.json"))] if fixtures_dir.exists() else []
+            self._send_json({"fixtures": fixture_names}, status=200)
+            return
+        if path.startswith("/api/fixtures/"):
+            fixture_name = path.split("/")[-1]
+            fixture_file = Path("fixtures/cases") / f"{fixture_name}.json"
+            if fixture_file.exists():
+                try:
+                    with open(fixture_file, "r", encoding="utf-8") as f:
+                        self._send_json(json.load(f), status=200)
+                except Exception as e:
+                    self._send_json({"error": str(e)}, status=500)
+            else:
+                self._send_json({"error": f"Fixture '{fixture_name}' not found."}, status=404)
+            return
         if path == "/api/cases" or (path.startswith("/api/cases/") and path.count("/") == 3):
             auth = AUTHENTICATOR.authenticate(self.headers)
             if not self._authorized(auth, "AUDIT_READ"):
