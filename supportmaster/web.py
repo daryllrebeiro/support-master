@@ -1474,12 +1474,12 @@ def render_workspace(csrf_token: str = "") -> str:
                 <div class="review-task-card">
                   <h3>Action Required: Human Review Pending</h3>
                   <div class="review-details">
-                    <p><strong>Reason:</strong> \${esc(task.reason)}</p>
-                    <p><strong>Blocking Reasons:</strong> \${esc(task.blocking_reasons.join(', ') || 'None')}</p>
-                    <p><strong>Required Actions:</strong> \${esc(task.required_actions.join(', ') || 'None')}</p>
+                    <p><strong>Reason:</strong> ${esc(task.reason)}</p>
+                    <p><strong>Blocking Reasons:</strong> ${esc(task.blocking_reasons.join(', ') || 'None')}</p>
+                    <p><strong>Required Actions:</strong> ${esc(task.required_actions.join(', ') || 'None')}</p>
                   </div>
                   
-                  <form class="review-form" id="form-\${esc(task.task_id)}" onsubmit="submitReview(event, '\${esc(task.task_id)}')">
+                  <form class="review-form" id="form-${esc(task.task_id)}" onsubmit="submitReview(event, '${esc(task.task_id)}')">
                     <h4>Submit Review Decision</h4>
                     <div class="form-grid">
                       <div class="form-group">
@@ -1488,15 +1488,15 @@ def render_workspace(csrf_token: str = "") -> str:
                       </div>
                       <div class="form-group">
                         <label>Decision</label>
-                        <select name="decision" required onchange="toggleScopes(this, '\${esc(task.task_id)}')">
+                        <select name="decision" required onchange="toggleScopes(this, '${esc(task.task_id)}')">
                           <option value="APPROVE">APPROVE (Resume execution)</option>
                           <option value="REJECT">REJECT (Halt run)</option>
                         </select>
                       </div>
-                      <div class="form-group full-width" id="scopes-group-\${esc(task.task_id)}">
+                      <div class="form-group full-width" id="scopes-group-${esc(task.task_id)}">
                         <label>Authorize Scopes</label>
                         <div class="scopes-checklist">
-                          \${scopesList}
+                          ${scopesList}
                         </div>
                       </div>
                       <div class="form-group">
@@ -1521,7 +1521,7 @@ def render_workspace(csrf_token: str = "") -> str:
           .then(async data => {
             const list = document.getElementById('cases-list');
             if (!data.cases || data.cases.length === 0) {
-              list.innerHTML = '<p class="muted">No cases in the execution pipeline yet.</p>';
+              list.innerHTML = '<p class="muted" style="text-align: center; padding: 40px; color: var(--text-secondary);">No active cases in the execution pipeline yet. Launch a workflow or send a message in the ADK Chat.</p>';
               return;
             }
             
@@ -1535,12 +1535,14 @@ def render_workspace(csrf_token: str = "") -> str:
             
             list.innerHTML = views.map(v => {
               const snap = v.snapshot;
+              if (!snap || !snap.case) return '';
+              
               const statusClass = snap.case.status === 'RESOLVED' || snap.case.status === 'COMPLETED' ? 'completed' : 
                                   snap.case.status === 'SAFETY_STOP' ? 'safety-stop' : 'open';
               
               const gatesBadges = Object.entries(snap.gate_statuses || {}).map(([name, status]) => {
                 const badgeClass = String(status).toLowerCase().replace(/_/g, '-');
-                return `<span class="gate-badge \${badgeClass}">\${esc(name)}: \${esc(status)}</span>`;
+                return `<span class="gate-badge ${badgeClass}">${esc(name.replace(/_/g, ' ').toUpperCase())}: ${esc(status)}</span>`;
               }).join('');
 
               const timelineItems = (snap.timeline || []).map(event => {
@@ -1551,59 +1553,69 @@ def render_workspace(csrf_token: str = "") -> str:
                 const statusLabelClass = dotClass;
                 return `
                   <div class="timeline-item">
-                    <div class="timeline-dot \${dotClass}"></div>
+                    <div class="timeline-dot ${dotClass}"></div>
                     <div class="timeline-content">
-                      <strong>\${esc(event.stage)}</strong>
-                      <span class="timeline-status \${statusLabelClass}">\${esc(event.status)}</span>
-                      <div class="timeline-detail">\${esc(event.detail)}</div>
+                      <strong>${esc(event.stage)}</strong>
+                      <span class="timeline-status ${statusLabelClass}">${esc(event.status)}</span>
+                      <div class="timeline-detail">${esc(event.detail)}</div>
                     </div>
                   </div>
                 `;
               }).join('');
 
-              const activityRows = v.activity.slice(-5).reverse().map(e => `
+              const activityRows = (v.activity || []).slice(-6).reverse().map(e => `
                 <div class="activity-row">
-                  <span class="event-type">\${esc(e.event_type)}</span>
-                  <span class="timestamp">\${esc(e.recorded_at.split('T')[1].slice(0, 8))}</span>
+                  <span class="event-type">${esc(e.event_type)}</span>
+                  <span class="timestamp">${esc(e.recorded_at ? e.recorded_at.split('T')[1].slice(0, 8) + ' UTC' : '')}</span>
                 </div>
               `).join('') || '<div class="muted">No telemetry events.</div>';
 
               return `
-                <div class="case-card">
+                <div class="case-card" id="case-${esc(snap.case.case_id)}">
                   <div class="case-header">
                     <div>
-                      <h3 class="case-title">\${esc(snap.case.title)}</h3>
+                      <h3 class="case-title">${esc(snap.case.title || 'Support Case')}</h3>
                       <div class="case-meta">
-                        <span>Case ID: \${esc(snap.case.case_id)}</span>
-                        <span>Tenant: \${esc(snap.case.tenant_id)}</span>
-                        <span>Source: \${esc(snap.case.source_system)}</span>
+                        <span><strong>Case ID:</strong> ${esc(snap.case.case_id)}</span>
+                        <span><strong>Tenant:</strong> ${esc(snap.case.tenant_id)}</span>
+                        <span><strong>Source:</strong> ${esc(snap.case.source_system)}</span>
+                        <span><strong>Current Stage:</strong> <span style="color: var(--accent-blue); font-weight: 600;">${esc(snap.workflow_stage || 'IN_PROGRESS')}</span></span>
                       </div>
                     </div>
-                    <span class="case-status-badge \${statusClass}">\${esc(snap.case.status)}</span>
+                    <span class="case-status-badge ${statusClass}">${esc(snap.case.status)}</span>
                   </div>
                   
-                  <div class="case-description">\${esc(snap.case.description)}</div>
+                  <div class="case-description">${esc(snap.case.description)}</div>
                   
                   <div class="action-banner">
-                    <strong>Recommended Next Action:</strong> \${esc(snap.next_action)}
+                    <strong>Recommended Next Action:</strong> ${esc(snap.next_action || 'Execute automated investigation and validation suite.')}
                   </div>
                   
-                  <div class="gates-container">
-                    \${gatesBadges}
+                  <div style="margin-top: 12px;">
+                    <strong style="font-size: 0.8rem; text-transform: uppercase; color: var(--text-secondary); display: block; margin-bottom: 6px;">Safety Gate Verification Status</strong>
+                    <div class="gates-container">
+                      ${gatesBadges || '<span class="gate-badge">GATES PENDING INITIALIZATION</span>'}
+                    </div>
                   </div>
                   
                   <div class="timeline-section">
-                    <h4>Workflow Stages</h4>
+                    <h4>Workflow Stages Pipeline</h4>
                     <div class="timeline-flow">
-                      \${timelineItems}
+                      ${timelineItems}
                     </div>
                   </div>
                   
                   <div class="activity-timeline">
-                    <h4>Audit Event Log</h4>
+                    <h4>Verifiable Audit Telemetry Log</h4>
                     <div class="activity-list">
-                      \${activityRows}
+                      ${activityRows}
                     </div>
+                  </div>
+
+                  <div style="margin-top: 20px; display: flex; gap: 12px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+                    <a href="/?model=gemini-3.5-flash" class="fixture-btn" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+                      💬 Open in ADK Live Chat
+                    </a>
                   </div>
                 </div>
               `;
