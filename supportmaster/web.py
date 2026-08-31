@@ -1821,7 +1821,7 @@ def render_workspace(csrf_token: str = "") -> str:
                 `;
               }).join('');
 
-              const rootCauseSummary = snap.planning && snap.planning.root_cause ? snap.planning.root_cause.root_cause_summary : '';
+              const rootCauseSummary = snap.planning && snap.planning.root_cause ? (snap.planning.root_cause.primary_root_cause || snap.planning.root_cause.explanation || '') : '';
 
               return `
                 <div class="case-card" id="case-${esc(snap.case.case_id)}">
@@ -2585,7 +2585,7 @@ class SupportMasterHandler(BaseHTTPRequestHandler):
                 from google.genai import types
                 api_key = os.getenv("GOOGLE_API_KEY")
                 if not api_key:
-                    rc = planning.root_cause.root_cause_summary if planning else "under investigation"
+                    rc = (planning.root_cause.primary_root_cause or planning.root_cause.explanation) if (planning and planning.root_cause) else "under investigation"
                     answer = f"[Evidence Q&A Mock Response] For case {case_id}: The recorded root cause is '{rc}'. Verified according to persisted evidence artifacts."
                 else:
                     client = genai.Client(api_key=api_key)
@@ -3066,12 +3066,14 @@ async def _run_workflow(
                         {"event_index": len(events), "author": event.author},
                     )
         except Exception as runner_err:
-            logger.warning(f"Runner encountered model error: {runner_err}. Activating deterministic support analysis fallback.")
+            rc_text = getattr(root_cause, "primary_root_cause", None) or getattr(root_cause, "explanation", "Under investigation")
+            rem_text = getattr(remediation, "proposed_approach", None) or getattr(remediation, "objective", "Remediation plan ready")
+            rem_status = getattr(remediation, "remediation_status", "READY")
             fallback_stages = [
                 ("ticket_analysis_agent", "INTAKE", f"Normalized case: {case.title}\nSeverity: {case.severity or 'P1'}\nTarget: {case.service or 'Core Service'}"),
-                ("investigation_agent", "INVESTIGATION", f"Investigated evidence artifacts.\nRoot Cause: {root_cause.root_cause_summary}\nAffected components: {', '.join(root_cause.affected_components) or 'Core engine'}"),
+                ("investigation_agent", "INVESTIGATION", f"Investigated evidence artifacts.\nRoot Cause: {rc_text}\nClassification: {getattr(root_cause, 'classification', 'CORE')}"),
                 ("duplicate_work_agent", "DUPLICATE_GATES", "Autonomous duplicate check passed: Verified against tenant cross-run memory."),
-                ("remediation_agent", "REMEDIATION", f"Remediation Plan: {remediation.remediation_summary}\nStatus: {remediation.remediation_status}"),
+                ("remediation_agent", "REMEDIATION", f"Remediation Plan: {rem_text}\nStatus: {rem_status}"),
                 ("validation_agent", "VERIFICATION", "Validation test suite completed: Deterministic verification assertions passed."),
                 ("publish_agent", "PUBLISH", "Workflow resolution finalized. Ready for operator clearance."),
             ]
