@@ -1,0 +1,18 @@
+{
+  "title": "Runaway animation loop causing exponential ball acceleration and browser lag in BoardComponent",
+  "summary": "Runaway animation loop causing exponential ball acceleration and browser lag in BoardComponent",
+  "reporter": "Marcus Vance (QA Lead, Arcade Gaming Group)",
+  "priority": "P1",
+  "severity": "P1",
+  "service": "daryllrebeiro/break_em_all",
+  "product": "break_em_all",
+  "environment": "Production (Web Browser / Chrome / Firefox)",
+  "description": "When a player loads the brick breaker game, the ball starts at standard velocity, but within 3 to 5 seconds the game loop accelerates uncontrollably. The ball travels at extreme speed across the canvas, teleporting through paddle boundaries and causing CPU utilization to spike to 100% on the browser tab.\n\nAffected component: src/app/board/board.component.ts (BoardComponent)\n\nDiagnostic Evidence & Console Logs:\n[Violation] 'requestAnimationFrame' handler took 18ms\nAnimation frame callback count: 1200 calls/sec (expected: 60 fps)\nCall Tree: BoardComponent.drawGame -> requestAnimationFrame\n           BoardComponent.gameLoop -> requestAnimationFrame",
+  "steps": [
+    "Launch application in web browser",
+    "Observe canvas rendering during initial 5 seconds",
+    "Inspect Chrome DevTools Performance Profiler requestAnimationFrame call tree",
+    "Observe runaway frame scheduling and uncontrolled ball velocity"
+  ],
+  "impact": "Game becomes unplayable within 5 seconds of launch; causes tab freeze and high CPU utilization on client devices."
+}

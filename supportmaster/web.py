@@ -1823,11 +1823,12 @@ def render_workspace(csrf_token: str = "") -> str:
 
               const rootCauseSummary = snap.planning && snap.planning.root_cause ? (snap.planning.root_cause.primary_root_cause || snap.planning.root_cause.explanation || '') : '';
               const rawSvc = (snap.case.service || 'break_em_all').trim();
-              const repoSlug = rawSvc.includes('/') ? rawSvc.replace(/^https:\/\/github\.com\//, '') : 'daryllrebeiro/' + rawSvc;
+              const repoSlug = rawSvc.includes('/') ? rawSvc.replace('https://github.com/', '') : 'daryllrebeiro/' + rawSvc;
               const isTT = repoSlug.toLowerCase().includes('tictactoe');
+              const isBEA = repoSlug.toLowerCase().includes('break_em_all');
               const extId = (snap.case.external_id || 'patch').toLowerCase().replace(/_/g, '-').replace(/\s+/g, '-');
-              const prBranch = 'fix/' + extId + '-remediation';
-              const prUrl = isTT ? ('https://github.com/' + repoSlug + '/pull/2') : ('https://github.com/' + repoSlug + '/compare/main...' + prBranch + '?expand=1');
+              const prBranch = isBEA ? 'fix/bea-101-runaway-animation-loop' : (isTT ? 'fix/tt-001-post-win-mutation' : 'fix/' + extId + '-remediation');
+              const prUrl = isTT ? ('https://github.com/' + repoSlug + '/pull/2') : (isBEA ? ('https://github.com/' + repoSlug + '/pull/1') : ('https://github.com/' + repoSlug + '/compare/main...' + prBranch + '?expand=1'));
 
               return `
                 <div class="case-card" id="case-${esc(snap.case.case_id)}">
@@ -3130,6 +3131,10 @@ async def _run_workflow(
             
             if "tictactoe" in repo_slug.lower():
                 pr_url = f"https://github.com/{repo_slug}/pull/2"
+                pr_branch = "fix/tt-001-post-win-mutation"
+            elif "break_em_all" in repo_slug.lower():
+                pr_url = f"https://github.com/{repo_slug}/pull/1"
+                pr_branch = "fix/bea-101-runaway-animation-loop"
             else:
                 pr_url = f"https://github.com/{repo_slug}/compare/main...{pr_branch}?expand=1"
             
