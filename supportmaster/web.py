@@ -1664,7 +1664,7 @@ def render_workspace(csrf_token: str = "") -> str:
         fetch('/api/reviews/metrics')
           .then(r => r.json())
           .then(m => {
-            document.getElementById('metrics-total').textContent = m.total;
+            document.getElementById('metrics-total').textContent = (m.total_cases !== undefined ? m.total_cases : m.total);
             document.getElementById('metrics-open').textContent = m.open_count;
             document.getElementById('metrics-approvals').textContent = m.approvals;
             document.getElementById('metrics-expiring').textContent = m.expiring_count;

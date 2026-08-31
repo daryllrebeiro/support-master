@@ -17,6 +17,7 @@ class ReviewQueueSnapshot(BaseModel):
 class ReviewQueueMetrics(BaseModel):
     tenant_id: str
     total: int = 0
+    total_cases: int = 0
     by_status: dict[str, int] = Field(default_factory=dict)
     approvals: int = 0
     rejections: int = 0
@@ -36,6 +37,7 @@ class ReviewQueueService:
         from datetime import datetime, timedelta, timezone
 
         tasks = self.store.list_review_tasks(tenant_id)
+        cases = self.store.list_cases(tenant_id)
         counts: dict[str, int] = {}
         for task in tasks:
             counts[task.status] = counts.get(task.status, 0) + 1
@@ -47,6 +49,7 @@ class ReviewQueueService:
         return ReviewQueueMetrics(
             tenant_id=tenant_id,
             total=len(tasks),
+            total_cases=len(cases),
             by_status=counts,
             approvals=sum(task.status in {"APPROVED", "RESUMED"} for task in tasks),
             rejections=sum(task.status == "REJECTED" for task in tasks),
