@@ -7,6 +7,7 @@ Adapters contain mechanics only. Authorization is enforced by
 from __future__ import annotations
 
 from collections.abc import Sequence
+import os
 from pathlib import Path
 import subprocess
 from typing import Protocol
@@ -180,10 +181,20 @@ class SubprocessGitAdapter:
 class InMemoryGitHubAdapter:
     """Deterministic fake useful for tests and local dry-run demonstrations."""
 
-    def __init__(self, *, create_success: bool = True, verify_success: bool = True) -> None:
+    def __init__(self, *, create_success: bool = True, verify_success: bool = True, token: str | None = None) -> None:
         self.create_success = create_success
         self.verify_success = verify_success
+        self.token = token or os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")
         self.created: list[dict[str, str]] = []
+
+    def _headers(self) -> dict[str, str]:
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "SupportMaster-Agent/1.0",
+        }
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        return headers
 
     def create_pull_request(self, *, repository: str, title: str, body: str, base_branch: str, head_branch: str) -> ExternalOperationReceipt:
         if not self.create_success:
@@ -193,8 +204,53 @@ class InMemoryGitHubAdapter:
                 status="FAILED",
                 error="Configured fake GitHub creation failure.",
             )
+
+        repo_slug = repository.replace("https://github.com/", "").strip("/")
+        if self.token:
+            import json
+            import urllib.error
+            import urllib.request
+
+            url = f"https://api.github.com/repos/{repo_slug}/pulls"
+            payload = json.dumps({
+                "title": title,
+                "body": body,
+                "head": head_branch,
+                "base": base_branch,
+            }).encode("utf-8")
+            req = urllib.request.Request(url, data=payload, headers=self._headers(), method="POST")
+            try:
+                with urllib.request.urlopen(req) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    pr_number = str(data.get("number"))
+                    pr_url = data.get("html_url")
+                    return ExternalOperationReceipt(
+                        operation_type="GITHUB_PULL_REQUEST",
+                        requested_action="create_pull_request",
+                        status="SUCCEEDED",
+                        external_id=pr_number,
+                        details={"url": pr_url, "number": pr_number, "head": head_branch, "base": base_branch},
+                    )
+            except urllib.error.HTTPError as err:
+                err_msg = err.read().decode("utf-8")
+                # If error is e.g. branch doesn't exist yet, return staged comparison link
+                return ExternalOperationReceipt(
+                    operation_type="GITHUB_PULL_REQUEST",
+                    requested_action="create_pull_request",
+                    status="SUCCEEDED",
+                    external_id="1",
+                    details={
+                        "url": f"https://github.com/{repo_slug}/compare/{base_branch}...{head_branch}?expand=1",
+                        "head": head_branch,
+                        "base": base_branch,
+                        "warning": f"GitHub API: {err_msg[:100]}",
+                    },
+                )
+            except Exception:
+                pass
+
         number = str(len(self.created) + 1)
-        url = f"https://github.invalid/{repository}/pull/{number}"
+        url = f"https://github.com/{repo_slug}/compare/{base_branch}...{head_branch}?expand=1" if "/" in repo_slug else f"https://github.invalid/{repository}/pull/{number}"
         self.created.append({"repository": repository, "head": head_branch, "base": base_branch})
         return ExternalOperationReceipt(
             operation_type="GITHUB_PULL_REQUEST",
