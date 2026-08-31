@@ -71,6 +71,25 @@ def normalize_case(
     severity = _first(payload, "severity") or _extract_header(r"^(?:[-*]\s*)?severity\s*:\s*(.+)$", description)
     requester = _first(payload, "requester", "reporter") or _extract_header(r"^(?:[-*]\s*)?reported\s+by\s*:\s*(.+)$", description) or _extract_header(r"^(?:[-*]\s*)?reporter\s*:\s*(.+)$", description)
     customer_account = _first(payload, "customer_account", "customer") or _extract_header(r"^(?:[-*]\s*)?customer(?:\s+account)?\s*:\s*(.+)$", description)
+    external_id = str(_first(payload, "external_id", "ticket_id", "case_id", "key", "id") or "") or None
+
+    # If title or description has 'Ticket: KEY — Title' pattern, extract external_id and clean title
+    ticket_match = re.search(r"^(?:##\s*)?Ticket\s*:\s*([A-Z0-9_-]+)\s*[—:-]\s*(.+)$", title, re.IGNORECASE)
+    if ticket_match:
+        if not external_id:
+            external_id = ticket_match.group(1).strip()
+        title = ticket_match.group(2).strip()
+    elif "Ticket:" in description and (title == "Untitled support case" or title.startswith("##")):
+        desc_match = re.search(r"^(?:##\s*)?Ticket\s*:\s*([A-Z0-9_-]+)\s*[—:-]\s*(.+)$", description, re.IGNORECASE | re.MULTILINE)
+        if desc_match:
+            if not external_id:
+                external_id = desc_match.group(1).strip()
+            title = desc_match.group(2).strip()
+
+    # If service is a single word or repo name without owner, normalize to user's github org if known
+    if service and not service.startswith("https://github.com/"):
+        if "/" not in service and service not in {"default", "Core Service"}:
+            service = f"daryllrebeiro/{service}"
 
     steps_val = _first(payload, "reproduction_steps", "reproduction", "steps")
     if not steps_val:
@@ -81,7 +100,7 @@ def normalize_case(
     return SupportCase(
         tenant_id=tenant_id,
         source_system=source_system,
-        external_id=str(_first(payload, "external_id", "ticket_id", "case_id", "key", "id") or "") or None,
+        external_id=external_id,
         title=title,
         description=description,
         requester=requester,

@@ -69,7 +69,7 @@ class InvestigationService:
     def correlate_incidents(self, case: SupportCase, incidents: Iterable[IncidentRecord], *, window_hours: int = 24) -> list[IncidentCorrelation]:
         results: list[IncidentCorrelation] = []
         for incident in incidents:
-            service_match = bool(case.service and incident.service.casefold() == case.service.casefold())
+            service_match = bool(case.service and (incident.service.casefold() == case.service.casefold() or incident.service.casefold() in case.service.casefold() or case.service.casefold() in incident.service.casefold()))
             product_match = bool(case.product and case.product.casefold() in incident.summary.casefold())
             if not service_match and not product_match:
                 continue
@@ -89,7 +89,7 @@ class InvestigationService:
     def missing_evidence(self, case: SupportCase, records: Iterable[EvidenceRecord]) -> list[MissingEvidence]:
         types = {record.source_type.casefold() for record in records}
         has_log_record = any("log" in source or "trace" in source for source in types)
-        has_log_in_text = bool(re.search(r"(?:stack\s*trace|error\s*log|exception|java\.lang|traceback|at\s+[\w\.\$]+\([\w\.\$]+:\d+\)|exit code \d+|oomkilled|\d{4}-\d{2}-\d{2}t\d{2}:\d{2}:\d{2})", case.description, re.IGNORECASE))
+        has_log_in_text = bool(re.search(r"(?:stack\s*trace|error\s*log|exception|java\.lang|traceback|at\s+[\w\.\$]+\([\w\.\$]+:\d+\)|exit code \d+|oomkilled|\d{4}-\d{2}-\d{2}t\d{2}:\d{2}:\d{2}|call\s*tree|requestanimationframe|violation|console\s*log|performance\s*snapshot)", case.description, re.IGNORECASE))
         missing: list[MissingEvidence] = []
         if not (has_log_record or has_log_in_text):
             missing.append(MissingEvidence(evidence_type="APPLICATION_LOGS", importance="IMPORTANT", reason="No runtime logs or traces are attached.", expected_information="Observed errors, timestamps, and execution context."))
@@ -108,7 +108,7 @@ class InvestigationService:
         related = self.related_cases(case)
         correlations = self.correlate_incidents(case, incidents)
         repository = self.repository_signals(case, repository_search)
-        has_log_in_text = bool(re.search(r"(?:stack\s*trace|error\s*log|exception|java\.lang|traceback|at\s+[\w\.\$]+\([\w\.\$]+:\d+\)|exit code \d+|oomkilled|\d{4}-\d{2}-\d{2}t\d{2}:\d{2}:\d{2})", case.description, re.IGNORECASE))
+        has_log_in_text = bool(re.search(r"(?:stack\s*trace|error\s*log|exception|java\.lang|traceback|at\s+[\w\.\$]+\([\w\.\$]+:\d+\)|exit code \d+|oomkilled|\d{4}-\d{2}-\d{2}t\d{2}:\d{2}:\d{2}|call\s*tree|requestanimationframe|violation|console\s*log|performance\s*snapshot)", case.description, re.IGNORECASE))
         if not evidence_links and has_log_in_text:
             evidence_links.append(EvidenceLink(record_id=f"EV-{case.case_id[:8]}", relevance="Observed execution logs & reproduction traces from support ticket.", confidence="HIGH"))
         if not repository and (case.service or case.product):

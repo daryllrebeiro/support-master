@@ -1822,6 +1822,12 @@ def render_workspace(csrf_token: str = "") -> str:
               }).join('');
 
               const rootCauseSummary = snap.planning && snap.planning.root_cause ? (snap.planning.root_cause.primary_root_cause || snap.planning.root_cause.explanation || '') : '';
+              const rawSvc = (snap.case.service || 'break_em_all').trim();
+              const repoSlug = rawSvc.includes('/') ? rawSvc.replace(/^https:\/\/github\.com\//, '') : 'daryllrebeiro/' + rawSvc;
+              const isTT = repoSlug.toLowerCase().includes('tictactoe');
+              const extId = (snap.case.external_id || 'patch').toLowerCase().replace(/_/g, '-').replace(/\s+/g, '-');
+              const prBranch = 'fix/' + extId + '-remediation';
+              const prUrl = isTT ? ('https://github.com/' + repoSlug + '/pull/2') : ('https://github.com/' + repoSlug + '/compare/main...' + prBranch + '?expand=1');
 
               return `
                 <div class="case-card" id="case-${esc(snap.case.case_id)}">
@@ -1848,14 +1854,14 @@ def render_workspace(csrf_token: str = "") -> str:
                   <div style="background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 8px; padding: 12px; margin-top: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
                     <div>
                       <span style="color: #22c55e; font-weight: 700; font-size: 0.85rem; display: flex; align-items: center; gap: 6px;">
-                        🎯 PULL REQUEST CREATED & READY FOR REVIEW
+                        🎯 PULL REQUEST STAGED & READY FOR REVIEW
                       </span>
                       <div style="font-size: 0.85rem; margin-top: 4px; color: var(--text-primary);">
-                        <strong>Target:</strong> <code>https://github.com/daryllrebeiro/tictactoe</code> (PR #2: <code>fix/tt-001-post-win-mutation</code> ➔ <code>main</code>)
+                        <strong>Target:</strong> <code>https://github.com/${esc(repoSlug)}</code> (Branch: <code>${esc(prBranch)}</code> ➔ <code>main</code>)
                       </div>
                     </div>
-                    <a href="https://github.com/daryllrebeiro/tictactoe/pull/2" target="_blank" class="fixture-btn" style="text-decoration: none; background: rgba(34, 197, 94, 0.2); border-color: rgba(34, 197, 94, 0.4); color: #22c55e; font-weight: 600; white-space: nowrap;">
-                      🚀 View PR #2 on GitHub
+                    <a href="${esc(prUrl)}" target="_blank" class="fixture-btn" style="text-decoration: none; background: rgba(34, 197, 94, 0.2); border-color: rgba(34, 197, 94, 0.4); color: #22c55e; font-weight: 600; white-space: nowrap;">
+                      🚀 ${isTT ? 'View PR #2 on GitHub' : 'Open PR on GitHub'}
                     </a>
                   </div>
                   ` : ''}
@@ -3103,17 +3109,38 @@ async def _run_workflow(
             rem_text = getattr(remediation, "proposed_approach", None) or getattr(remediation, "objective", "Remediation plan ready")
             rem_status = getattr(remediation, "remediation_status", "READY")
             
-            is_tt = "tictactoe" in (case.service or case.title or "").lower()
-            pr_repo = "daryllrebeiro/tictactoe" if is_tt else (case.service or "daryllrebeiro/tictactoe")
-            pr_branch = "fix/tt-001-post-win-mutation" if is_tt else f"fix/{case.external_id or 'remediation'}-patch"
-            pr_url = f"https://github.com/{pr_repo}/pull/2" if is_tt else f"https://github.com/{pr_repo}/compare/main...{pr_branch}?expand=1"
+            repo_raw = (case.service or "tictactoe").strip()
+            if repo_raw.startswith("https://github.com/"):
+                repo_slug = repo_raw.replace("https://github.com/", "").strip("/")
+            elif "/" in repo_raw:
+                repo_slug = repo_raw.strip("/")
+            else:
+                repo_slug = f"daryllrebeiro/{repo_raw}"
+            
+            clean_title = case.title
+            if "—" in clean_title:
+                clean_title = clean_title.split("—")[-1].strip()
+            if ":" in clean_title and clean_title.lower().startswith("ticket"):
+                clean_title = clean_title.split(":")[-1].strip()
+            if clean_title.lower().startswith("title:"):
+                clean_title = clean_title[6:].strip()
+
+            ext_id = (case.external_id or "patch").lower().replace("_", "-").replace(" ", "-")
+            pr_branch = f"fix/{ext_id}-remediation"
+            
+            if "tictactoe" in repo_slug.lower():
+                pr_url = f"https://github.com/{repo_slug}/pull/2"
+            else:
+                pr_url = f"https://github.com/{repo_slug}/compare/main...{pr_branch}?expand=1"
+            
+            pr_title = f"fix({repo_slug.split('/')[-1]}): resolve {clean_title[:70]}"
             
             publish_msg = (
-                f"Pull Request Created Successfully on GitHub.\n"
-                f"• Target Repository: https://github.com/{pr_repo}\n"
+                f"Pull Request Staged Successfully.\n"
+                f"• Target Repository: https://github.com/{repo_slug}\n"
                 f"• Pull Request: {pr_url}\n"
                 f"• PR Branch: {pr_branch} ➔ main\n"
-                f"• Title: fix(board): prevent board state mutation after game is won in makeMove\n"
+                f"• Title: {pr_title}\n"
                 f"• Status: PENDING_OPERATOR_MERGE (Ready for review & merge: {pr_url})"
             )
             
