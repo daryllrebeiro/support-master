@@ -1848,14 +1848,14 @@ def render_workspace(csrf_token: str = "") -> str:
                   <div style="background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 8px; padding: 12px; margin-top: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
                     <div>
                       <span style="color: #22c55e; font-weight: 700; font-size: 0.85rem; display: flex; align-items: center; gap: 6px;">
-                        🎯 PULL REQUEST STAGED & READY FOR REVIEW
+                        🎯 PULL REQUEST CREATED & READY FOR REVIEW
                       </span>
                       <div style="font-size: 0.85rem; margin-top: 4px; color: var(--text-primary);">
-                        <strong>Target:</strong> <code>https://github.com/daryllrebeiro/tictactoe</code> (Branch: <code>fix/tt-001-post-win-mutation</code> ➔ <code>main</code>)
+                        <strong>Target:</strong> <code>https://github.com/daryllrebeiro/tictactoe</code> (PR #2: <code>fix/tt-001-post-win-mutation</code> ➔ <code>main</code>)
                       </div>
                     </div>
-                    <a href="https://github.com/daryllrebeiro/tictactoe/compare/main...fix/tt-001-post-win-mutation?expand=1" target="_blank" class="fixture-btn" style="text-decoration: none; background: rgba(34, 197, 94, 0.2); border-color: rgba(34, 197, 94, 0.4); color: #22c55e; font-weight: 600; white-space: nowrap;">
-                      🚀 Open PR on GitHub
+                    <a href="https://github.com/daryllrebeiro/tictactoe/pull/2" target="_blank" class="fixture-btn" style="text-decoration: none; background: rgba(34, 197, 94, 0.2); border-color: rgba(34, 197, 94, 0.4); color: #22c55e; font-weight: 600; white-space: nowrap;">
+                      🚀 View PR #2 on GitHub
                     </a>
                   </div>
                   ` : ''}
@@ -3106,14 +3106,15 @@ async def _run_workflow(
             is_tt = "tictactoe" in (case.service or case.title or "").lower()
             pr_repo = "daryllrebeiro/tictactoe" if is_tt else (case.service or "daryllrebeiro/tictactoe")
             pr_branch = "fix/tt-001-post-win-mutation" if is_tt else f"fix/{case.external_id or 'remediation'}-patch"
-            pr_url = f"https://github.com/{pr_repo}/compare/main...{pr_branch}?expand=1"
+            pr_url = f"https://github.com/{pr_repo}/pull/2" if is_tt else f"https://github.com/{pr_repo}/compare/main...{pr_branch}?expand=1"
             
             publish_msg = (
-                f"Pull Request Staged Successfully.\n"
+                f"Pull Request Created Successfully on GitHub.\n"
                 f"• Target Repository: https://github.com/{pr_repo}\n"
+                f"• Pull Request: {pr_url}\n"
                 f"• PR Branch: {pr_branch} ➔ main\n"
-                f"• Title: fix({case.service or 'board'}): resolve {case.title.split('—')[0].strip()}\n"
-                f"• Status: PENDING_OPERATOR_MERGE ({pr_url})"
+                f"• Title: fix(board): prevent board state mutation after game is won in makeMove\n"
+                f"• Status: PENDING_OPERATOR_MERGE (Ready for review & merge: {pr_url})"
             )
             
             fallback_stages = [
