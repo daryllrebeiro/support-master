@@ -1,0 +1,18 @@
+{
+  "title": "Cluster topology displays dead broker in ISR and stalls High-Watermark progression during follower failover",
+  "summary": "Cluster topology displays dead broker in ISR and stalls High-Watermark progression during follower failover",
+  "reporter": "Elena Rostova (Lead Systems Engineer, Distributed Infrastructure)",
+  "priority": "P1",
+  "severity": "P1",
+  "service": "daryllrebeiro/the-visualizer",
+  "product": "the-visualizer",
+  "environment": "Production Web App / Chromium Simulation Worker",
+  "description": "During a simulated follower broker crash scenario in the distributed Kafka topology visualizer, the partition replication status corrupts. Specifically, when a non-leader follower broker is terminated, the partition detail panel continues showing the dead broker as an active In-Sync Replica (ISR), and subsequent produce message flows fail to advance the partition High-Watermark (HW).\n\nDiagnostic Evidence & Console Logs:\n[Simulation Engine] Event received: BROKER_STATUS_CHANGED -> brokerId: 'broker-2', status: 'CRASHED'\n[Simulation Engine] Warning: Partition 'orders-0' ISR contains crashed broker 'broker-2' (ISR: ['broker-1', 'broker-2'])\n[InvariantChecker] HIGH_WATERMARK_BOUND assertion failure: High-watermark stalled because replica 'broker-2' LEO is unresponsive.\nComponent: packages/simulation/src/engine/state-transitions.ts",
+  "steps": [
+    "Load TheVisualizer cluster topology scenario with 3 brokers and topic 'orders' (replication factor: 2)",
+    "Inject fault event: Crash follower Broker 2 while Broker 1 is active partition leader",
+    "Produce new records to partition 'orders-0'",
+    "Observe partition inspection panel and High-Watermark offset progression"
+  ],
+  "impact": "Simulation engine halts during chaos testing; student and operator playbooks show incorrect replica status and stall message throughput."
+}
