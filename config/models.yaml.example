@@ -1,0 +1,52 @@
+# SupportMaster Configurable Model Provider Layer Example (Phase 46)
+# Copy this file to config/models.yaml to customize providers or fallback chains.
+# Actual API keys are never stored in this file — only the name of the environment variable to read.
+
+default_provider: vertex_ai
+default_model: gemini-3.5-flash
+
+fallback_chain:
+  - provider: vertex_ai
+    model: gemini-3.5-flash
+  - provider: gemini_api
+    model: gemini-3.5-flash
+
+providers:
+  vertex_ai:
+    project_env: GOOGLE_CLOUD_PROJECT
+    location_env: GOOGLE_CLOUD_LOCATION
+    supported_models:
+      - id: gemini-3.5-flash
+        label: Gemini 3.5 Flash (Vertex AI) — default
+      - id: gemini-3.5-flash-lite
+        label: Gemini 3.5 Flash-Lite (Vertex AI)
+      - id: gemini-3.6-flash
+        label: Gemini 3.6 Flash (Vertex AI)
+  gemini_api:
+    api_key_env: GOOGLE_API_KEY
+    supported_models:
+      - id: gemini-3.5-flash
+        label: Gemini 3.5 Flash (Google AI Studio)
+      - id: gemini-3.5-flash-lite
+        label: Gemini 3.5 Flash-Lite (Google AI Studio)
+  anthropic:
+    api_key_env: ANTHROPIC_API_KEY
+    supported_models:
+      - id: claude-3-5-sonnet-20241022
+        label: Claude 3.5 Sonnet (Anthropic via LiteLLM)
+      - id: claude-3-5-haiku-20241022
+        label: Claude 3.5 Haiku (Anthropic via LiteLLM)
+  openai:
+    api_key_env: OPENAI_API_KEY
+    supported_models:
+      - id: gpt-4o
+        label: GPT-4o (OpenAI via LiteLLM)
+      - id: gpt-4o-mini
+        label: GPT-4o Mini (OpenAI via LiteLLM)
+  openrouter:
+    api_key_env: OPENROUTER_API_KEY
+    supported_models:
+      - id: anthropic/claude-3.5-sonnet
+        label: Claude 3.5 Sonnet (OpenRouter via LiteLLM)
+      - id: meta-llama/llama-3.3-70b-instruct
+        label: Llama 3.3 70B (OpenRouter via LiteLLM)

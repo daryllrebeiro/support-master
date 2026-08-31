@@ -25,6 +25,7 @@ from google.genai import types
 
 from .agent import create_root_agent
 from .config import DEFAULT_MODEL, supported_models
+from .model_resolver import MODEL_RESOLVER
 from .persistence import SQLiteRunStore, TenantAccessError
 from .runtime import DurableTaskWorker
 from .telemetry import MetricsRegistry, SQLiteTelemetrySink, TelemetryRecorder
@@ -138,6 +139,9 @@ def _configured_health_reporter() -> HealthReporter:
 
 
 def _model_label(model_name: str) -> str:
+    for m in MODEL_RESOLVER.get_available_models():
+        if m["id"] == model_name or f"{m['provider']}:{m['id']}" == model_name or f"{m['provider']}/{m['id']}" == model_name:
+            return m["label"]
     return model_name.replace("gemini-", "Gemini ").replace("-", " ").title()
 
 
@@ -149,14 +153,17 @@ def render_page(
 ) -> str:
     """Render the dual-view control panel with Workflow Launcher and ADK Agent Chat & Live Reasoning."""
     escaped_jira = escape(MOCK_JIRA_ISSUE).replace('`', '\\`').replace('\n', '\\n')
+    available_models = [m for m in MODEL_RESOLVER.get_available_models() if m.get("available", True)]
+    if not available_models:
+        available_models = [{"id": m, "label": _model_label(m), "provider": "vertex_ai"} for m in supported_models()]
     options = "\n".join(
         (
-            f'<option value="{escape(model)}"'
-            f'{" selected" if model == selected_model else ""}>'
-            f"{escape(_model_label(model))}"
+            f'<option value="{escape(model["id"])}"'
+            f'{" selected" if model["id"] == selected_model else ""}>'
+            f"{escape(model['label'])}"
             "</option>"
         )
-        for model in supported_models()
+        for model in available_models
     )
     status_html = (
         f'<div class="status-card" role="status"><div class="status-indicator"></div><p class="status-text">{escape(status)}</p></div>' if status else ""
@@ -2144,6 +2151,14 @@ class SupportMasterHandler(BaseHTTPRequestHandler):
             self.send_header("Set-Cookie", f"csrf-token={csrf_token}; Path=/; HttpOnly; SameSite=Strict")
             self.end_headers()
             self.wfile.write(body)
+            return
+        if path == "/api/models/available":
+            self._send_json({
+                "models": MODEL_RESOLVER.get_available_models(),
+                "default_model": MODEL_RESOLVER.default_model,
+                "default_provider": MODEL_RESOLVER.default_provider,
+                "fallback_chain": MODEL_RESOLVER.fallback_chain,
+            }, status=200)
             return
         if path == "/api/cases" or (path.startswith("/api/cases/") and path.count("/") == 3):
             auth = AUTHENTICATOR.authenticate(self.headers)
