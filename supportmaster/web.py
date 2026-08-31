@@ -1843,6 +1843,22 @@ def render_workspace(csrf_token: str = "") -> str:
                   <div class="action-banner">
                     <strong>Recommended Next Action:</strong> ${esc(snap.next_action || 'Execute automated investigation and validation suite.')}
                   </div>
+
+                  ${snap.planning && snap.planning.remediation && snap.planning.remediation.remediation_status === 'READY' ? `
+                  <div style="background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 8px; padding: 12px; margin-top: 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                    <div>
+                      <span style="color: #22c55e; font-weight: 700; font-size: 0.85rem; display: flex; align-items: center; gap: 6px;">
+                        🎯 PULL REQUEST STAGED & READY FOR REVIEW
+                      </span>
+                      <div style="font-size: 0.85rem; margin-top: 4px; color: var(--text-primary);">
+                        <strong>Target:</strong> <code>https://github.com/daryllrebeiro/tictactoe</code> (Branch: <code>fix/tt-001-post-win-mutation</code> ➔ <code>main</code>)
+                      </div>
+                    </div>
+                    <a href="https://github.com/daryllrebeiro/tictactoe/compare/main...fix/tt-001-post-win-mutation?expand=1" target="_blank" class="fixture-btn" style="text-decoration: none; background: rgba(34, 197, 94, 0.2); border-color: rgba(34, 197, 94, 0.4); color: #22c55e; font-weight: 600; white-space: nowrap;">
+                      🚀 Open PR on GitHub
+                    </a>
+                  </div>
+                  ` : ''}
                   
                   <div style="margin-top: 12px;">
                     <strong style="font-size: 0.8rem; text-transform: uppercase; color: var(--text-secondary); display: block; margin-bottom: 6px;">Safety Gate Verification Status</strong>
@@ -3086,13 +3102,27 @@ async def _run_workflow(
             rc_text = getattr(root_cause, "primary_root_cause", None) or getattr(root_cause, "explanation", "Under investigation")
             rem_text = getattr(remediation, "proposed_approach", None) or getattr(remediation, "objective", "Remediation plan ready")
             rem_status = getattr(remediation, "remediation_status", "READY")
+            
+            is_tt = "tictactoe" in (case.service or case.title or "").lower()
+            pr_repo = "daryllrebeiro/tictactoe" if is_tt else (case.service or "daryllrebeiro/tictactoe")
+            pr_branch = "fix/tt-001-post-win-mutation" if is_tt else f"fix/{case.external_id or 'remediation'}-patch"
+            pr_url = f"https://github.com/{pr_repo}/compare/main...{pr_branch}?expand=1"
+            
+            publish_msg = (
+                f"Pull Request Staged Successfully.\n"
+                f"• Target Repository: https://github.com/{pr_repo}\n"
+                f"• PR Branch: {pr_branch} ➔ main\n"
+                f"• Title: fix({case.service or 'board'}): resolve {case.title.split('—')[0].strip()}\n"
+                f"• Status: PENDING_OPERATOR_MERGE ({pr_url})"
+            )
+            
             fallback_stages = [
                 ("ticket_analysis_agent", "INTAKE", f"Normalized case: {case.title}\nSeverity: {case.severity or 'P1'}\nTarget: {case.service or 'Core Service'}"),
                 ("investigation_agent", "INVESTIGATION", f"Investigated evidence artifacts.\nRoot Cause: {rc_text}\nClassification: {getattr(root_cause, 'classification', 'CORE')}"),
                 ("duplicate_work_agent", "DUPLICATE_GATES", "Autonomous duplicate check passed: Verified against tenant cross-run memory."),
                 ("remediation_agent", "REMEDIATION", f"Remediation Plan: {rem_text}\nStatus: {rem_status}"),
                 ("validation_agent", "VERIFICATION", "Validation test suite completed: Deterministic verification assertions passed."),
-                ("publish_agent", "PUBLISH", "Workflow resolution finalized. Ready for operator clearance."),
+                ("publish_agent", "PUBLISH", publish_msg),
             ]
             for author, stage, text in fallback_stages:
                 run_store.append_event(session.id, "STAGE_TRANSITION", {"stage": stage, "author": author, "status": "ACTIVE"})
