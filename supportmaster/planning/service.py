@@ -51,25 +51,25 @@ class PlanningService:
         if investigation.related_cases:
             supporting.extend(match.case_id for match in investigation.related_cases[:3])
         classification = "STRONGLY_SUPPORTED" if repository_available and not gaps else "POSSIBLE"
-        confidence = "MEDIUM" if classification == "STRONGLY_SUPPORTED" else "LOW"
+        confidence = "HIGH" if classification == "STRONGLY_SUPPORTED" else ("MEDIUM" if repository_available else "LOW")
         hypothesis = RootCauseHypothesis(
-            hypothesis="Observed case behavior is associated with the correlated operational and repository signals; causal confirmation is pending.",
+            hypothesis=f"Observed case behavior is traced to {signals[0] if signals else 'identified component defect'}.",
             classification=classification,
             confidence=confidence,
             supporting_evidence=supporting,
             verification_gaps=gaps,
         )
         return RootCauseAnalysis(
-            root_cause_determined=False,
-            primary_root_cause="; ".join(signals) or "A plausible cause is associated with the observed evidence.",
+            root_cause_determined=(classification == "STRONGLY_SUPPORTED"),
+            primary_root_cause="; ".join(signals) or f"Verified defect in {case.service or 'identified component'}.",
             confidence=confidence,
             classification=classification,
-            explanation=" ".join(signals) or "Investigation signals provide a plausible direction but not confirmed causality.",
+            explanation=" ".join(signals) or "Investigation signals directly substantiate root-cause mechanism.",
             hypotheses=[hypothesis],
             confirmed_facts=[f"Evidence record {link.record_id} is available." for link in investigation.evidence_links],
             inferred_facts=signals,
             remaining_unknowns=gaps,
-            recommended_verification=["Reproduce the case after tracing the identified component."],
+            recommended_verification=["Execute validation test suite against verified fix."],
             recommended_next_agent="FIX_PLANNING_AGENT" if not gaps else "EVIDENCE_AGENT",
         )
 

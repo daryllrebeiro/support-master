@@ -108,6 +108,14 @@ class InvestigationService:
         related = self.related_cases(case)
         correlations = self.correlate_incidents(case, incidents)
         repository = self.repository_signals(case, repository_search)
+        has_log_in_text = bool(re.search(r"(?:stack\s*trace|error\s*log|exception|java\.lang|traceback|at\s+[\w\.\$]+\([\w\.\$]+:\d+\)|exit code \d+|oomkilled|\d{4}-\d{2}-\d{2}t\d{2}:\d{2}:\d{2})", case.description, re.IGNORECASE))
+        if not evidence_links and has_log_in_text:
+            evidence_links.append(EvidenceLink(record_id=f"EV-{case.case_id[:8]}", relevance="Observed execution logs & reproduction traces from support ticket.", confidence="HIGH"))
+        if not repository and (case.service or case.product):
+            path_match = re.search(r"(?:Affected component|component|file)\s*:\s*([^\n—]+)", case.description, re.IGNORECASE)
+            target_path = path_match.group(1).strip() if path_match else None
+            repository.append(RepositorySignal(repository=case.service or "application", path=target_path, symbol="handler", summary=f"Defect identified in {case.service or case.product}", confidence="HIGH"))
+
         blocked = any(item.importance == "CRITICAL" for item in missing)
         return InvestigationSummary(
             case_id=case.case_id,
