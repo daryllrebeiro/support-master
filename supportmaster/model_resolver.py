@@ -24,6 +24,7 @@ DEFAULT_FALLBACK_CONFIG: dict[str, Any] = {
     "fallback_chain": [
         {"provider": "vertex_ai", "model": "gemini-3.5-flash"},
         {"provider": "gemini_api", "model": "gemini-3.5-flash"},
+        {"provider": "openrouter", "model": "google/gemini-2.5-flash"},
     ],
     "providers": {
         "vertex_ai": {
@@ -42,6 +43,15 @@ DEFAULT_FALLBACK_CONFIG: dict[str, Any] = {
                 {"id": "gemini-3.5-flash-lite", "label": "Gemini 3.5 Flash-Lite (Google AI Studio)"},
             ],
         },
+        "openrouter": {
+            "api_key_env": "OPENROUTER_API_KEY",
+            "supported_models": [
+                {"id": "google/gemini-2.5-flash", "label": "Gemini 3.5 Flash (via OpenRouter) — fallback"},
+                {"id": "google/gemini-2.0-flash-001", "label": "Gemini 2.0 Flash (via OpenRouter) — fallback"},
+                {"id": "anthropic/claude-3.5-sonnet", "label": "Claude 3.5 Sonnet (OpenRouter via LiteLLM)"},
+                {"id": "meta-llama/llama-3.3-70b-instruct", "label": "Llama 3.3 70B (OpenRouter via LiteLLM)"},
+            ],
+        },
         "anthropic": {
             "api_key_env": "ANTHROPIC_API_KEY",
             "supported_models": [
@@ -54,13 +64,6 @@ DEFAULT_FALLBACK_CONFIG: dict[str, Any] = {
             "supported_models": [
                 {"id": "gpt-4o", "label": "GPT-4o (OpenAI via LiteLLM)"},
                 {"id": "gpt-4o-mini", "label": "GPT-4o Mini (OpenAI via LiteLLM)"},
-            ],
-        },
-        "openrouter": {
-            "api_key_env": "OPENROUTER_API_KEY",
-            "supported_models": [
-                {"id": "anthropic/claude-3.5-sonnet", "label": "Claude 3.5 Sonnet (OpenRouter via LiteLLM)"},
-                {"id": "meta-llama/llama-3.3-70b-instruct", "label": "Llama 3.3 70B (OpenRouter via LiteLLM)"},
             ],
         },
     },
