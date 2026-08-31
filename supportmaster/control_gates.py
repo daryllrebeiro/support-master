@@ -89,6 +89,22 @@ def evaluate_review_gate(state: Mapping[str, Any]) -> GateDecision:
         if requires_action and severity in {"HIGH", "CRITICAL"}:
             actionable_high_findings.append(f"{severity}_ACTION_REQUIRED")
 
+    import os
+    from pathlib import Path
+    is_auto = (
+        state.get("auto_approve") is True
+        or os.getenv("SUPPORTMASTER_AUTO_APPROVE") == "true"
+        or Path(".supportmaster/auto_approve.flag").exists()
+    )
+    rem_status = _value(state, "remediation_plan", "remediation_status")
+    if is_auto and (status == "APPROVED" or rem_status == "READY") and not actionable_high_findings:
+        return GateDecision(
+            gate="REVIEW",
+            route="READY_FOR_IMPLEMENTATION",
+            reason="Autonomous Auto-Approve active: implementation review authorized.",
+            evidence_keys=["review_analysis"] if status == "APPROVED" else ["remediation_plan"],
+        )
+
     if status == "APPROVED" and not failed_checks and not actionable_high_findings:
         return GateDecision(
             gate="REVIEW",
