@@ -40,6 +40,7 @@ from .models.planning import PlanningAssessment
 from .workflow_state import SupportMasterState
 from .workspace import CaseWorkspaceService
 from .rate_limiter import TenantRateLimiter
+from .archival.archiver import CaseArtifactBundle, RollingCaseArchiver
 
 
 RATE_LIMITER = TenantRateLimiter(default_capacity=5.0, default_fill_rate=0.5)
@@ -1648,6 +1649,17 @@ def render_workspace(csrf_token: str = "") -> str:
       <div id="cases-list">
         <!-- Rendered dynamically -->
       </div>
+
+      <div class="cases-title" style="margin-top: 36px; display: flex; justify-content: space-between; align-items: center;">
+        <span>📦 Rolling Case Archives (10-Issue Batches)</span>
+        <button type="button" class="fixture-btn" onclick="createArchiveNow()" style="background: rgba(99, 102, 241, 0.2); border-color: rgba(99, 102, 241, 0.4); color: #818cf8; font-size: 0.85rem; padding: 6px 12px; cursor: pointer;">
+          📦 Bundle Pending Cases Now
+        </button>
+      </div>
+
+      <div id="archives-list" style="margin-top: 16px;">
+        <p class="muted">Loading rolling archives...</p>
+      </div>
     </main>
 
     <script>
@@ -2037,7 +2049,59 @@ def render_workspace(csrf_token: str = "") -> str:
         });
       }
 
+      function loadArchives() {
+        fetch('/api/v1/archives', {
+          headers: {
+            'X-SupportMaster-API-Key': 'secret|operator|demo-acme|AUDIT_READ'
+          }
+        })
+        .then(r => r.json())
+        .then(data => {
+          const list = document.getElementById('archives-list');
+          if (!data.archives || data.archives.length === 0) {
+            list.innerHTML = '<div style="padding: 16px; border-radius: 12px; background: rgba(15, 23, 42, 0.4); border: 1px solid var(--border-color); color: var(--text-secondary); font-size: 0.88rem;">No multi-case zip archives generated yet. Archives are automatically compiled every 10 completed support cases.</div>';
+            return;
+          }
+          list.innerHTML = data.archives.map(arch => `
+            <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); border-radius: 12px; padding: 14px 18px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
+              <div>
+                <h4 style="margin: 0 0 4px; font-family: 'Outfit', sans-serif; font-size: 0.95rem; color: #ffffff;">📦 ${esc(arch.filename)}</h4>
+                <div style="font-size: 0.82rem; color: var(--text-secondary);">
+                  <strong>Span:</strong> ${esc(arch.start_date)} ➔ ${esc(arch.end_date)} &bull; 
+                  <strong>Cases:</strong> ${esc(arch.case_count)} issues &bull; 
+                  <strong>Size:</strong> ${(arch.size_bytes / 1024).toFixed(1)} KB
+                </div>
+              </div>
+              <a href="/api/v1/archives/${encodeURIComponent(arch.archive_id)}/download" class="fixture-btn" style="text-decoration: none; background: rgba(34, 197, 94, 0.2); border-color: rgba(34, 197, 94, 0.4); color: #22c55e; font-weight: 600; white-space: nowrap; font-size: 0.85rem; padding: 6px 14px;">
+                ⬇️ Download .zip
+              </a>
+            </div>
+          `).join('');
+        })
+        .catch(console.error);
+      }
+
+      function createArchiveNow() {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        fetch('/api/v1/archives/create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-SupportMaster-API-Key': 'secret|operator|demo-acme|RUN_EXECUTE',
+            'X-CSRF-Token': csrfToken
+          }
+        })
+        .then(r => r.json())
+        .then(data => {
+          alert(data.message || 'Archive operation completed.');
+          loadArchives();
+        })
+        .catch(err => alert('Failed to create archive: ' + err.message));
+      }
+
       loadAutoApproveSetting();
+      loadArchives();
+      setInterval(loadArchives, 10000);
     </script>
   </body>
 </html>"""
@@ -2350,6 +2414,50 @@ class SupportMasterHandler(BaseHTTPRequestHandler):
             self._send_json({"enabled": enabled}, status=200)
             return
 
+        if path == "/api/v1/archives":
+            auth = AUTHENTICATOR.authenticate(self.headers)
+            if not self._authorized(auth, "AUDIT_READ"):
+                return
+            try:
+                assert auth.principal is not None
+                store = SQLiteRunStore(os.getenv("SUPPORTMASTER_RUN_DB", ".supportmaster/runs.db"))
+                archives = store.list_archives(auth.principal.tenant_id)
+                self._send_json({"archives": archives}, status=200)
+            except Exception as error:
+                self._send_json({"error": str(error)}, status=500)
+            return
+
+        if path.startswith("/api/v1/archives/") and path.endswith("/download"):
+            auth = AUTHENTICATOR.authenticate(self.headers)
+            if not self._authorized(auth, "AUDIT_READ"):
+                return
+            try:
+                assert auth.principal is not None
+                parts = path.strip("/").split("/")
+                if len(parts) != 5:
+                    self._send_json({"error": "Invalid archive URL format."}, status=400)
+                    return
+                archive_id = parts[3]
+                store = SQLiteRunStore(os.getenv("SUPPORTMASTER_RUN_DB", ".supportmaster/runs.db"))
+                archive = store.get_archive(auth.principal.tenant_id, archive_id)
+                if not archive:
+                    self._send_json({"error": f"Archive '{archive_id}' not found."}, status=404)
+                    return
+                file_path = Path(archive["filepath"])
+                if not file_path.exists():
+                    self._send_json({"error": "Archive file not found on disk."}, status=404)
+                    return
+                body = file_path.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/zip")
+                self.send_header("Content-Disposition", f'attachment; filename="{archive["filename"]}"')
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as error:
+                self._send_json({"error": str(error)}, status=500)
+            return
+
         if path == "/api/organizations":
             auth = AUTHENTICATOR.authenticate(self.headers)
             if not self._authorized(auth, "AUDIT_READ"):
@@ -2461,6 +2569,22 @@ class SupportMasterHandler(BaseHTTPRequestHandler):
                 self._send_json({"enabled": enabled}, status=200)
             except Exception as error:
                 self._send_json({"error": str(error)}, status=400)
+            return
+
+        if path == "/api/v1/archives/create":
+            if not self._validate_csrf():
+                return
+            try:
+                assert auth.principal is not None
+                store = SQLiteRunStore(os.getenv("SUPPORTMASTER_RUN_DB", ".supportmaster/runs.db"))
+                archiver = RollingCaseArchiver(store)
+                record = archiver.force_archive(auth.principal.tenant_id)
+                if not record:
+                    self._send_json({"message": "No unarchived completed cases found for packaging.", "archives": store.list_archives(auth.principal.tenant_id)}, status=200)
+                    return
+                self._send_json({"archive": record.model_dump(mode="json"), "message": f"Successfully created archive '{record.filename}'."}, status=201)
+            except Exception as error:
+                self._send_json({"error": str(error)}, status=500)
             return
 
         if path == "/api/organizations":
@@ -3202,6 +3326,30 @@ async def _run_workflow(
         )
     run_store.mark_run_completed(session.id)
     run_store.append_event(session.id, "RUN_COMPLETED", {"outcome": "SUCCEEDED"})
+
+    # Save complete case artifact bundle and check rolling archive consolidation threshold
+    try:
+        archiver = RollingCaseArchiver(run_store)
+        bundle = CaseArtifactBundle(
+            case_id=case.case_id,
+            tenant_id=tenant_id,
+            title=case.title,
+            external_id=case.external_id,
+            service=case.service,
+            severity=case.severity or "P2",
+            status=case.status or "COMPLETED",
+            issue_description=workflow_issue,
+            root_cause=root_cause.model_dump(mode="json") if hasattr(root_cause, "model_dump") else {},
+            remediation_plan=remediation.model_dump(mode="json") if hasattr(remediation, "model_dump") else {},
+            code_patch_diff=getattr(remediation, "diff", "") or "",
+            validation_results={"events_count": len(worker_result.result.get("text", "").splitlines())},
+            gate_history=getattr(state, "gate_history", []) or [],
+        )
+        archiver.save_case_bundle(bundle)
+        archiver.check_and_archive(tenant_id)
+    except Exception as arch_err:
+        logger.warning(f"Archival artifact bundle saving warning for case {case.case_id}: {arch_err}")
+
     return worker_result.result.get("text", "The workflow returned no text events.")
 
 

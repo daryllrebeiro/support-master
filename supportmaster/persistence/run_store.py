@@ -183,6 +183,28 @@ class SQLiteRunStore:
                 );
                 CREATE INDEX IF NOT EXISTS task_checkpoints_task_idx
                     ON task_checkpoints(task_id, sequence);
+                CREATE TABLE IF NOT EXISTS case_archives (
+                    archive_id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL,
+                    filename TEXT NOT NULL,
+                    filepath TEXT NOT NULL,
+                    case_count INTEGER NOT NULL,
+                    start_date TEXT NOT NULL,
+                    end_date TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL,
+                    archive_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS case_archives_tenant_idx
+                    ON case_archives(tenant_id, created_at);
+                CREATE TABLE IF NOT EXISTS archived_cases (
+                    case_id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL,
+                    archive_id TEXT NOT NULL,
+                    archived_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS archived_cases_tenant_idx
+                    ON archived_cases(tenant_id, archive_id);
                 """
             )
 
@@ -1071,3 +1093,66 @@ class SQLiteRunStore:
             payload=json.loads(row["payload_json"]),
             recorded_at=row["recorded_at"],
         )
+
+    def save_archive(self, record: Any) -> None:
+        """Persist a rolling zip archive record."""
+        payload = record.model_dump(mode="json") if hasattr(record, "model_dump") else record
+        now = self._now()
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO case_archives(archive_id, tenant_id, filename, filepath, case_count, start_date, end_date, size_bytes, archive_json, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(archive_id) DO UPDATE SET size_bytes=excluded.size_bytes, archive_json=excluded.archive_json",
+                (
+                    payload["archive_id"],
+                    payload["tenant_id"],
+                    payload["filename"],
+                    payload["filepath"],
+                    payload["case_count"],
+                    payload["start_date"],
+                    payload["end_date"],
+                    payload["size_bytes"],
+                    json.dumps(payload),
+                    payload.get("created_at") or now,
+                ),
+            )
+
+    def list_archives(self, tenant_id: str) -> list[dict[str, Any]]:
+        """List all rolling archives for a tenant sorted by newest first."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT archive_json FROM case_archives WHERE tenant_id=? ORDER BY created_at DESC",
+                (tenant_id,),
+            ).fetchall()
+        return [json.loads(r["archive_json"]) for r in rows]
+
+    def get_archive(self, tenant_id: str, archive_id: str) -> dict[str, Any] | None:
+        """Retrieve archive record by ID ensuring strict tenant boundary isolation."""
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT archive_json FROM case_archives WHERE tenant_id=? AND archive_id=?",
+                (tenant_id, archive_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return json.loads(row["archive_json"])
+
+    def mark_cases_archived(self, tenant_id: str, case_ids: list[str], archive_id: str) -> None:
+        """Index cases as archived in SQLite."""
+        now = self._now()
+        with self._connect() as connection:
+            for cid in case_ids:
+                connection.execute(
+                    "INSERT OR REPLACE INTO archived_cases(case_id, tenant_id, archive_id, archived_at) VALUES (?, ?, ?, ?)",
+                    (cid, tenant_id, archive_id, now),
+                )
+
+    def get_archived_case_ids(self, tenant_id: str) -> list[str]:
+        """List all case IDs already associated with an archive for a tenant."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT case_id FROM archived_cases WHERE tenant_id=?",
+                (tenant_id,),
+            ).fetchall()
+        return [r["case_id"] for r in rows]
+
