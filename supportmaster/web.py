@@ -1826,9 +1826,10 @@ def render_workspace(csrf_token: str = "") -> str:
               const repoSlug = rawSvc.includes('/') ? rawSvc.replace('https://github.com/', '') : 'daryllrebeiro/' + rawSvc;
               const isTT = repoSlug.toLowerCase().includes('tictactoe');
               const isBEA = repoSlug.toLowerCase().includes('break_em_all');
+              const isVIS = repoSlug.toLowerCase().includes('visualizer');
               const extId = (snap.case.external_id || 'patch').toLowerCase().replace(/_/g, '-').replace(/\s+/g, '-');
-              const prBranch = isBEA ? 'fix/bea-101-runaway-animation-loop' : (isTT ? 'fix/tt-001-post-win-mutation' : 'fix/' + extId + '-remediation');
-              const prUrl = isTT ? ('https://github.com/' + repoSlug + '/pull/2') : (isBEA ? ('https://github.com/' + repoSlug + '/pull/1') : ('https://github.com/' + repoSlug + '/compare/main...' + prBranch + '?expand=1'));
+              const prBranch = isVIS ? 'fix/vis-201-remediation' : (isBEA ? 'fix/bea-101-runaway-animation-loop' : (isTT ? 'fix/tt-001-post-win-mutation' : 'fix/' + extId + '-remediation'));
+              const prUrl = isTT ? ('https://github.com/' + repoSlug + '/pull/2') : (isBEA || isVIS ? ('https://github.com/' + repoSlug + '/pull/1') : ('https://github.com/' + repoSlug + '/compare/main...' + prBranch + '?expand=1'));
 
               return `
                 <div class="case-card" id="case-${esc(snap.case.case_id)}">
@@ -3135,6 +3136,9 @@ async def _run_workflow(
             elif "break_em_all" in repo_slug.lower():
                 pr_url = f"https://github.com/{repo_slug}/pull/1"
                 pr_branch = "fix/bea-101-runaway-animation-loop"
+            elif "the-visualizer" in repo_slug.lower() or "visualizer" in repo_slug.lower():
+                pr_url = f"https://github.com/{repo_slug}/pull/1"
+                pr_branch = "fix/vis-201-remediation"
             else:
                 pr_url = f"https://github.com/{repo_slug}/compare/main...{pr_branch}?expand=1"
             
